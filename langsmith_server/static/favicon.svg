@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"
+     role="img" aria-label="agentTracer">
+  <title>agentTracer</title>
+  <!-- The same three nested spans, knocked out of an ink tile. The tile is why
+       this is a separate file from logo.svg: a bare near-black mark disappears
+       against the dark tab bar in Chrome, Firefox and Arc. The tile reads on
+       both light and dark chrome, because the white bars carry it on dark and
+       the tile silhouette carries it on light. -->
+  <rect width="32" height="32" rx="7.2" fill="#1d1d1f"/>
+  <g fill="#ffffff">
+    <rect x="6"    y="7.7"  width="20"   height="3.8" rx="1.9"/>
+    <rect x="10.6" y="14.1" width="12.1" height="3.8" rx="1.9"/>
+    <rect x="15.2" y="20.5" width="6.2"  height="3.8" rx="1.9"/>
+  </g>
+</svg>
