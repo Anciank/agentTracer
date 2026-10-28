@@ -5,7 +5,8 @@ import { getGraph, getPaths, listProjects } from "../api/client";
 import type { EdgeStats, GraphWindow, NodeStats, PathGroup } from "../api/types";
 import { AgentMap } from "../components/AgentMap";
 import { ErrorState } from "../components/ErrorState";
-import { fmtDurMs, fmtInt, fmtPct } from "../lib/format";
+import { fmtInt, fmtPct } from "../lib/format";
+import { inferGraphMode, pickOther } from "../lib/graphLayout";
 import { isMapEndpointMissing } from "../lib/mapStatus";
 
 const WINDOWS: GraphWindow[] = ["1h", "24h", "7d"];
@@ -28,7 +29,8 @@ export default function ProjectMapPage() {
     () => projectsQ.data?.find((p) => p.id === projectId || p.name === projectId),
     [projectsQ.data, projectId]
   );
-  const idForApi = projectMeta?.id || projectId;
+  // Graph/paths :id is project/session **name** (API.md), not UUID.
+  const idForApi = projectMeta?.name || projectId;
 
   const graphQ = useQuery({
     queryKey: ["graph", idForApi, win],
@@ -65,8 +67,8 @@ export default function ProjectMapPage() {
       const name = g?.project || projectMeta?.name || "";
       const qs = new URLSearchParams();
       if (name) qs.set("project", name);
-      if (g?.from) qs.set("from", g.from);
-      if (g?.to) qs.set("to", g.to);
+      if (g?.window?.from) qs.set("from", g.window.from);
+      if (g?.window?.to) qs.set("to", g.window.to);
       for (const [k, v] of Object.entries(extra)) qs.set(k, v);
       nav(`/traces?${qs.toString()}`);
     },
@@ -142,6 +144,8 @@ export default function ProjectMapPage() {
   }
   const graph = graphQ.data!;
   const paths = pathsQ.data?.paths || [];
+  const otherNode = pickOther(graph.nodes);
+  const mode = inferGraphMode(graph.nodes);
 
   return (
     <div className="page map-page">
@@ -151,7 +155,7 @@ export default function ProjectMapPage() {
             <Link to="/">Projects</Link>
             <span> / </span>
             <strong>{graph.project}</strong>
-            <span className="map-mode"> · {graph.mode}</span>
+            <span className="map-mode"> · {mode}</span>
           </div>
           <h2 style={{ margin: "4px 0 0" }}>Agent map</h2>
         </div>
@@ -171,9 +175,9 @@ export default function ProjectMapPage() {
           <button type="button" className={`chip ${showHidden ? "active" : ""}`} onClick={toggleRare}>
             Rare edges (&lt;1%)
           </button>
-          {graph.other && (
+          {otherNode && (
             <button type="button" className={`chip ${expandOther ? "active" : ""}`} onClick={toggleExpand}>
-              {expandOther ? "Fold" : graph.other.label}
+              {expandOther ? "Fold" : otherNode.label}
             </button>
           )}
           <Link className="chip" to={`/traces?project=${encodeURIComponent(graph.project)}`}>
@@ -210,11 +214,9 @@ export default function ProjectMapPage() {
                 <button type="button" className="path-row" onClick={() => onPathClick(p)}>
                   <div className="path-label">
                     {p.label}
-                    {p.is_new ? <span className="badge">new</span> : null}
                   </div>
                   <div className="path-meta">
-                    {fmtInt(p.count)} runs · err {fmtPct(p.error_rate)} · p95 {fmtDurMs(p.p95_ms)}
-                    {p.fail_nodes.length ? ` · fail @ ${p.fail_nodes.join(", ")}` : ""}
+                    {fmtInt(p.count)} runs · {fmtPct(p.share)} · err {fmtPct(p.error_rate)}
                   </div>
                 </button>
               </li>

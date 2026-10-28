@@ -15,6 +15,26 @@ import type { EdgeStats, NodeStats } from "../api/types";
 /** Minimum error_rate for the strong "failing" visual (red stroke + badge). */
 export const FAIL_ERROR_RATE = 0.05;
 
+/** Server rollup key; lives inside `nodes[]` (not a top-level `other` field). */
+export const OTHER_KEY = "__other__";
+
+export function isOtherNode(n: Pick<NodeStats, "key" | "kind">): boolean {
+  return n.key === OTHER_KEY || n.kind === "other";
+}
+
+export function pickOther(nodes: NodeStats[]): NodeStats | null {
+  return nodes.find(isOtherNode) ?? null;
+}
+
+export function withoutOther(nodes: NodeStats[]): NodeStats[] {
+  return nodes.filter((n) => !isOtherNode(n));
+}
+
+/** Derive display mode — server no longer sends `mode`. */
+export function inferGraphMode(nodes: NodeStats[]): "langgraph" | "fallback" {
+  return nodes.some((n) => n.kind === "langgraph") ? "langgraph" : "fallback";
+}
+
 export function isFailingNode(n: Pick<NodeStats, "error_count" | "error_rate">): boolean {
   return n.error_count > 0 && n.error_rate >= FAIL_ERROR_RATE;
 }
@@ -159,7 +179,6 @@ function edgePath(
 
 export function layoutGraph(
   nodesIn: NodeStats[],
-  other: NodeStats | null,
   edgesIn: EdgeStats[],
   opts: LayoutOptions = {}
 ): GraphLayout {
@@ -170,7 +189,10 @@ export function layoutGraph(
   const pad = opts.pad ?? 32;
   const wrapCols = opts.wrapCols ?? 6;
 
-  const nodes: NodeStats[] = nodesIn.slice();
+  // Server embeds __other__ in nodes[]; fixtures may too. Expand uses rolled_keys
+  // when present (fixtures / older drafts); live server strips rolled_keys.
+  const other = pickOther(nodesIn);
+  const nodes: NodeStats[] = withoutOther(nodesIn);
   if (other) {
     if (opts.expandOther && other.rolled_keys?.length) {
       for (const k of other.rolled_keys) {

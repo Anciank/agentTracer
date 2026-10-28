@@ -175,11 +175,19 @@ export type StreamEvent =
   | { type: "run_upsert"; id?: string; data: { trace_id: string; row: SpanSummary } }
   | { type: "heartbeat"; data: Record<string, never> };
 
-/** M3.5 agent map — keep in sync with agentTracer_graph_shapes.md */
+/** M3.5 agent map — match server/API.md + Go handlers (origin/go-rewrite). */
 
 export type GraphWindow = "1h" | "24h" | "7d";
 
 export type NodeKind = "langgraph" | "run" | "other";
+
+/** Window object returned by /graph and /paths. */
+export type GraphWindowBounds = {
+  from: string;
+  to: string;
+  /** Preset used (`1h`|`24h`|`7d`) or `custom` when from/to override. */
+  preset: string;
+};
 
 export type NodeStats = {
   key: string;
@@ -195,6 +203,7 @@ export type NodeStats = {
   truncated: boolean;
   error_rate_delta?: number | null;
   p95_ms_delta?: number | null;
+  /** Present only in fixtures / expand UI; server strips before JSON. */
   rolled_keys?: string[];
 };
 
@@ -203,27 +212,28 @@ export type EdgeStats = {
   to: string;
   count: number;
   share: number;
-  avg_ms: number;
-  p95_ms: number;
+  /** Null when no gap samples. */
+  avg_ms: number | null;
+  p95_ms: number | null;
   error_count: number;
   loop: boolean;
   repeat_avg: number | null;
   repeat_max: number | null;
 };
 
+/**
+ * GET /api/ui/projects/{id}/graph — `{id}` is project/session **name**.
+ * `__other__` rollup (when present) lives inside `nodes` with kind=other.
+ */
 export type GraphResponse = {
-  project_id: string;
   project: string;
-  window: GraphWindow;
-  from: string;
-  to: string;
+  window: GraphWindowBounds;
   trace_count: number;
-  mode: "langgraph" | "fallback";
   nodes: NodeStats[];
-  other: NodeStats | null;
   edges: EdgeStats[];
   edges_hidden: EdgeStats[];
-  truncated: { nodes: boolean; edges: boolean };
+  generated_at: string;
+  compare?: Record<string, unknown>;
 };
 
 export type PathStep = { key: string; repeat: number };
@@ -232,23 +242,15 @@ export type PathGroup = {
   fingerprint: string;
   label: string;
   count: number;
-  error_count: number;
+  share: number;
   error_rate: number;
-  p95_ms: number | null;
-  fail_nodes: string[];
-  is_new: boolean;
   steps: PathStep[];
 };
 
 export type PathsResponse = {
-  project_id: string;
   project: string;
-  window: GraphWindow;
-  from: string;
-  to: string;
-  trace_count: number;
+  window: GraphWindowBounds;
   paths: PathGroup[];
-  next_cursor: string | null;
 };
 
 export type GraphParams = {

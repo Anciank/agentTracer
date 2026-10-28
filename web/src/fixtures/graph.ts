@@ -148,18 +148,13 @@ export function supportGraph(window: GraphWindow = "24h"): GraphResponse {
   const edges = SUPPORT_EDGES.map((e) => ({ ...e, count: scale(e.count) }));
   const edges_hidden = SUPPORT_HIDDEN.map((e) => ({ ...e, count: scale(e.count) }));
   return {
-    project_id: SUPPORT_ID,
     project: "support",
-    window,
-    from,
-    to,
+    window: { from, to, preset: window },
     trace_count: scale(10000),
-    mode: "langgraph",
-    nodes,
-    other,
+    nodes: [...nodes, other],
     edges,
     edges_hidden,
-    truncated: { nodes: true, edges: true },
+    generated_at: to,
   };
 }
 
@@ -181,18 +176,13 @@ export function researchGraph(window: GraphWindow = "24h"): GraphResponse {
     edge({ from: "critique", to: "write", count: 80, share: 0.18, loop: true, repeat_avg: 1.4, repeat_max: 4, error_count: 30 }),
   ];
   return {
-    project_id: RESEARCH_ID,
     project: "research",
-    window,
-    from,
-    to,
+    window: { from, to, preset: window },
     trace_count: 450,
-    mode: "langgraph",
     nodes,
-    other: null,
     edges,
     edges_hidden: [edge({ from: "plan", to: "write", count: 3, share: 0.007 })],
-    truncated: { nodes: false, edges: true },
+    generated_at: to,
   };
 }
 
@@ -207,11 +197,8 @@ const SUPPORT_PATHS: PathGroup[] = [
     fingerprint: "supervisor>route>tools×3>validate>respond",
     label: "supervisor → route → tools ×3 → validate → respond",
     count: 1200,
-    error_count: 80,
+    share: 0.12,
     error_rate: 0.067,
-    p95_ms: 4200,
-    fail_nodes: ["tools"],
-    is_new: false,
     steps: [
       { key: "supervisor", repeat: 1 },
       { key: "route", repeat: 1 },
@@ -224,11 +211,8 @@ const SUPPORT_PATHS: PathGroup[] = [
     fingerprint: "supervisor>route>retrieve>search>rank>compose>respond",
     label: "supervisor → route → retrieve → search → rank → compose → respond",
     count: 900,
-    error_count: 10,
+    share: 0.09,
     error_rate: 0.011,
-    p95_ms: 5100,
-    fail_nodes: [],
-    is_new: false,
     steps: [
       { key: "supervisor", repeat: 1 },
       { key: "route", repeat: 1 },
@@ -243,11 +227,8 @@ const SUPPORT_PATHS: PathGroup[] = [
     fingerprint: "supervisor>route>billing>refund>respond",
     label: "supervisor → route → billing → refund → respond",
     count: 140,
-    error_count: 22,
+    share: 0.014,
     error_rate: 0.157,
-    p95_ms: 3800,
-    fail_nodes: ["refund"],
-    is_new: true,
     steps: [
       { key: "supervisor", repeat: 1 },
       { key: "route", repeat: 1 },
@@ -260,11 +241,8 @@ const SUPPORT_PATHS: PathGroup[] = [
     fingerprint: "supervisor>route>tools×6>escalate",
     label: "supervisor → route → tools ×6 → escalate",
     count: 60,
-    error_count: 40,
+    share: 0.006,
     error_rate: 0.67,
-    p95_ms: 9000,
-    fail_nodes: ["tools", "escalate"],
-    is_new: false,
     steps: [
       { key: "supervisor", repeat: 1 },
       { key: "route", repeat: 1 },
@@ -283,11 +261,8 @@ export function getPathsFixture(projectId: string, window: GraphWindow = "24h"):
             fingerprint: "plan>search>read×2>write>critique",
             label: "plan → search → read ×2 → write → critique",
             count: 200,
-            error_count: 40,
+            share: 0.44,
             error_rate: 0.2,
-            p95_ms: 12000,
-            fail_nodes: ["critique"],
-            is_new: true,
             steps: [
               { key: "plan", repeat: 1 },
               { key: "search", repeat: 1 },
@@ -299,14 +274,9 @@ export function getPathsFixture(projectId: string, window: GraphWindow = "24h"):
         ]
       : SUPPORT_PATHS;
   return {
-    project_id: g.project_id,
     project: g.project,
-    window,
-    from: g.from,
-    to: g.to,
-    trace_count: g.trace_count,
+    window: g.window,
     paths,
-    next_cursor: null,
   };
 }
 
@@ -394,18 +364,13 @@ export function makeLargeGraph(nodeCount = 40, edgeFactor = 3): GraphResponse {
   }
   const { from, to } = windowBounds("24h");
   return {
-    project_id: SUPPORT_ID,
-    project: "support",
-    window: "24h",
-    from,
-    to,
+    project: "large",
+    window: { from, to, preset: "24h" },
     trace_count: 10000,
-    mode: "langgraph",
-    nodes: shown,
-    other,
+    nodes: other ? [...shown, other] : shown,
     edges,
     edges_hidden: hidden,
-    truncated: { nodes: !!other, edges: hidden.length > 0 },
+    generated_at: to,
   };
 }
 

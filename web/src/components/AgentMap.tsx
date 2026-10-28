@@ -88,8 +88,8 @@ export function AgentMap({
 
   const layout = useMemo(() => {
     layoutStart.current = performance.now();
-    return layoutGraph(graph.nodes, graph.other, edges, { expandOther });
-  }, [graph.nodes, graph.other, edges, expandOther]);
+    return layoutGraph(graph.nodes, edges, { expandOther });
+  }, [graph.nodes, edges, expandOther]);
 
   const layoutMs = useMemo(() => {
     return performance.now() - layoutStart.current;
@@ -142,7 +142,7 @@ export function AgentMap({
   useEffect(() => {
     fit();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fit on first graph identity
-  }, [graph.project_id, graph.window]);
+  }, [graph.project, graph.window.preset, graph.window.from]);
 
   useEffect(() => {
     if (!matchKey) return;

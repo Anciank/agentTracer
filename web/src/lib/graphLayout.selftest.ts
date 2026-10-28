@@ -2,7 +2,7 @@
  * Perf + correctness self-test for agent map layout.
  * Run: npx tsx src/lib/graphLayout.selftest.ts
  */
-import { FAIL_ERROR_RATE, isFailingNode, isWarnNode, layoutGraph } from "./graphLayout";
+import { FAIL_ERROR_RATE, isFailingNode, isWarnNode, layoutGraph, pickOther, withoutOther } from "./graphLayout";
 import { makeLargeGraph, supportGraph } from "../fixtures/graph";
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -11,10 +11,12 @@ function assert(cond: unknown, msg: string): asserts cond {
 
 function main() {
   const g = supportGraph("24h");
-  const lay = layoutGraph(g.nodes, g.other, [...g.edges, ...g.edges_hidden], {
+  const other = pickOther(g.nodes);
+  assert(other, "fixture embeds __other__");
+  const lay = layoutGraph(g.nodes, [...g.edges, ...g.edges_hidden], {
     expandOther: false,
   });
-  assert(lay.nodes.length === g.nodes.length + 1, "other fold present");
+  assert(lay.nodes.length === withoutOther(g.nodes).length + 1, "other fold present");
   assert(lay.nodes.some((n) => n.isOther), "other node flagged");
   assert(lay.nodes.every((n) => Number.isFinite(n.x) && Number.isFinite(n.y)), "finite coords");
   // top-to-bottom: avoid ultra-wide horizontal ribbon for the support DAG
@@ -39,9 +41,9 @@ function main() {
   assert(large.nodes.length <= 40, "top-n + failing bound");
   assert(large.nodes.some((n) => n.error_count > 0), "failing kept");
   const t0 = performance.now();
-  let last = layoutGraph(large.nodes, large.other, allEdges);
+  let last = layoutGraph(large.nodes, allEdges);
   for (let i = 0; i < 20; i++) {
-    last = layoutGraph(large.nodes, large.other, allEdges);
+    last = layoutGraph(large.nodes, allEdges);
   }
   const elapsed = performance.now() - t0;
   const per = elapsed / 21;

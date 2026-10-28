@@ -34,7 +34,7 @@ export function ProjectsPage() {
             key={p.id}
             type="button"
             className="card"
-            onClick={() => nav(`/map/${encodeURIComponent(p.id)}?window=24h`)}
+            onClick={() => nav(`/map/${encodeURIComponent(p.name)}?window=24h`)}
           >
             <h3>{p.name}</h3>
             <div className="meta">
