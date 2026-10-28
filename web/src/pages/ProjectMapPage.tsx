@@ -6,6 +6,7 @@ import type { EdgeStats, GraphWindow, NodeStats, PathGroup } from "../api/types"
 import { AgentMap } from "../components/AgentMap";
 import { ErrorState } from "../components/ErrorState";
 import { fmtDurMs, fmtInt, fmtPct } from "../lib/format";
+import { isMapEndpointMissing } from "../lib/mapStatus";
 
 const WINDOWS: GraphWindow[] = ["1h", "24h", "7d"];
 
@@ -116,6 +117,23 @@ export default function ProjectMapPage() {
     return <div className="page empty">Loading agent map…</div>;
   }
   if (graphQ.isError) {
+    if (isMapEndpointMissing(graphQ.error)) {
+      return (
+        <div className="page">
+          <div className="map-unsupported" role="status">
+            <h2>The agent map needs a server update</h2>
+            <p>
+              This UI build talks to <code>/api/ui/.../graph</code>, but the server you are
+              connected to does not expose it yet (HTTP 404/501). Upgrade the agentTracer
+              backend, then reload.
+            </p>
+            <Link className="chip" to="/traces">
+              Back to traces
+            </Link>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="page">
         <ErrorState error={graphQ.error} onRetry={() => void graphQ.refetch()} title="Failed to load graph" />
@@ -179,7 +197,13 @@ export default function ProjectMapPage() {
         <aside className="paths-panel">
           <h3>Paths</h3>
           {pathsQ.isLoading && <div className="hint">Loading…</div>}
-          {!paths.length && !pathsQ.isLoading && <div className="hint">No path groups</div>}
+          {pathsQ.isError && isMapEndpointMissing(pathsQ.error) && (
+            <div className="hint">Paths need a server update (404/501).</div>
+          )}
+          {pathsQ.isError && !isMapEndpointMissing(pathsQ.error) && (
+            <div className="hint">Failed to load paths.</div>
+          )}
+          {!paths.length && !pathsQ.isLoading && !pathsQ.isError && <div className="hint">No path groups</div>}
           <ul className="paths-list">
             {paths.map((p) => (
               <li key={p.fingerprint}>

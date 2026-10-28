@@ -9,8 +9,8 @@ import {
 } from "../lib/graphLayout";
 import { fmtDurMs, fmtInt, fmtPct } from "../lib/format";
 
-/** Fit never zooms out below this so 12px labels stay ~readable (~8.4px). Pan/scroll for the rest. */
-const MIN_FIT_ZOOM = 0.7;
+/** Fit never zooms out below this so 13px meta ≥ ~11px effective. Pan/scroll for the rest. */
+const MIN_FIT_ZOOM = 0.85;
 
 type Props = {
   graph: GraphResponse;
@@ -27,7 +27,8 @@ type Props = {
 function nodeFill(n: NodeStats): string {
   if (n.kind === "other") return "var(--chip)";
   if (isFailingNode(n)) return "var(--error-bg)";
-  if (isWarnNode(n)) return "color-mix(in srgb, var(--warn, #b45309) 18%, var(--raise))";
+  if (isWarnNode(n)) return "var(--warn-bg)";
+  // Healthy (error_count === 0): theme card surface — no tint in light or dark.
   return "var(--raise)";
 }
 
@@ -219,13 +220,13 @@ export function AgentMap({
           strokeDasharray={n.isOther ? "4 3" : undefined}
           filter={highlight ? "url(#glow)" : undefined}
         />
-        <text x={10} y={18} className="map-label">
-          {n.label.length > 18 ? n.label.slice(0, 16) + "…" : n.label}
+        <text x={12} y={22} className="map-label">
+          {n.label.length > 20 ? n.label.slice(0, 18) + "…" : n.label}
         </text>
-        <text x={10} y={34} className="map-meta">
+        <text x={12} y={42} className="map-meta">
           {fmtInt(s.count)} · err {fmtPct(s.error_rate)}
         </text>
-        <text x={10} y={48} className="map-meta">
+        <text x={12} y={60} className="map-meta">
           p95 {fmtDurMs(s.p95_ms)} · {fmtInt(s.tokens.total)} tok
         </text>
         {failing && !n.isOther && (

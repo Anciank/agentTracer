@@ -163,10 +163,10 @@ export function layoutGraph(
   edgesIn: EdgeStats[],
   opts: LayoutOptions = {}
 ): GraphLayout {
-  const nodeW = opts.nodeW ?? 148;
-  const nodeH = opts.nodeH ?? 56;
-  const gapX = opts.gapX ?? 28;
-  const gapY = opts.gapY ?? 72;
+  const nodeW = opts.nodeW ?? 176;
+  const nodeH = opts.nodeH ?? 72;
+  const gapX = opts.gapX ?? 36;
+  const gapY = opts.gapY ?? 84;
   const pad = opts.pad ?? 32;
   const wrapCols = opts.wrapCols ?? 6;
 
