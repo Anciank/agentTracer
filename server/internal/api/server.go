@@ -27,6 +27,7 @@ type Server struct {
 func New(cfg config.Config, st *store.Store) *Server {
 	s := &Server{cfg: cfg, store: st, mux: http.NewServeMux()}
 	s.routes()
+	s.routesUI()
 	return s
 }
 
@@ -44,16 +45,24 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("POST /runs", s.createRun)
 	s.mux.HandleFunc("PATCH /runs/{id}", s.patchRun)
+	s.mux.HandleFunc("DELETE /runs/{id}", s.deleteRun)
 	s.mux.HandleFunc("POST /runs/batch", s.runsBatch)
 	s.mux.HandleFunc("POST /runs/multipart", s.runsMultipart)
+	s.mux.HandleFunc("POST /runs/query", s.runsQuery)
 	s.mux.HandleFunc("GET /runs/{id}", s.getRun)
 	s.mux.HandleFunc("GET /runs", s.queryRuns)
+	s.mux.HandleFunc("GET /runs/stats", s.runStats)
+	s.mux.HandleFunc("GET /runs/{id}/attachments/{name}", s.getAttachment)
 
 	s.mux.HandleFunc("POST /sessions", s.createSession)
 	s.mux.HandleFunc("GET /sessions", s.listSessions)
 	s.mux.HandleFunc("GET /sessions/{id}", s.getSession)
+	s.mux.HandleFunc("PATCH /sessions/{id}", s.patchSession)
+	s.mux.HandleFunc("DELETE /sessions/{id}", s.deleteSession)
+	s.mux.HandleFunc("GET /sessions/{id}/runs", s.sessionRuns)
 
 	s.mux.HandleFunc("POST /feedback", s.createFeedback)
+	s.mux.HandleFunc("GET /feedback", s.listFeedback)
 
 	s.mux.HandleFunc("GET /ui", s.uiIndex)
 	s.mux.HandleFunc("GET /ui/", s.uiIndex)
@@ -70,17 +79,21 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+func readJSONBody(r *http.Request, max int64) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, max))
+	if err != nil {
+		return nil, err
+	}
+	return ingest.MaybeDecompress(body, r.Header.Get("Content-Encoding"))
+}
+
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
-	stats := s.store.Stats(r.Context())
-	out := map[string]any{
+	// Do not leak table counts on the unauthenticated probe.
+	writeJSON(w, 200, map[string]any{
 		"status":         "ok",
 		"implementation": "agenttracer-go",
 		"version":        ServerVersion,
-	}
-	for k, v := range stats {
-		out[k] = v
-	}
-	writeJSON(w, 200, out)
+	})
 }
 
 func (s *Server) info(w http.ResponseWriter, r *http.Request) {
@@ -88,11 +101,11 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 		"version":                 CompatVersion,
 		"license_expiration_time": nil,
 		"batch_ingest_config": map[string]any{
-			"use_multipart_endpoint":  true,
-			"size_limit":              100,
-			"size_limit_bytes":        20_000_000,
-			"scale_up_qsize_trigger":  1000,
-			"scale_up_nthreads_limit": 16,
+			"use_multipart_endpoint":    true,
+			"size_limit":                100,
+			"size_limit_bytes":          20_000_000,
+			"scale_up_qsize_trigger":    1000,
+			"scale_up_nthreads_limit":   16,
 			"scale_down_nempty_trigger": 4,
 		},
 		"instance_flags": map[string]any{"local_only": true},
@@ -104,8 +117,13 @@ func (s *Server) root(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
+	body, err := readJSONBody(r, 32<<20)
+	if err != nil {
+		writeJSON(w, 400, map[string]any{"detail": err.Error()})
+		return
+	}
 	var payload map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	if err := json.Unmarshal(body, &payload); err != nil {
 		writeJSON(w, 422, map[string]any{"detail": err.Error()})
 		return
 	}
@@ -122,8 +140,13 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) patchRun(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	body, err := readJSONBody(r, 32<<20)
+	if err != nil {
+		writeJSON(w, 400, map[string]any{"detail": err.Error()})
+		return
+	}
 	var payload map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	if err := json.Unmarshal(body, &payload); err != nil {
 		writeJSON(w, 422, map[string]any{"detail": err.Error()})
 		return
 	}
@@ -133,6 +156,14 @@ func (s *Server) patchRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 202, map[string]any{"id": id})
+}
+
+func (s *Server) deleteRun(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.DeleteRun(r.Context(), r.PathValue("id")); err != nil {
+		writeJSON(w, 500, map[string]any{"detail": err.Error()})
+		return
+	}
+	w.WriteHeader(204)
 }
 
 func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
@@ -158,21 +189,105 @@ func (s *Server) queryRuns(w http.ResponseWriter, r *http.Request) {
 			opts.Limit = n
 		}
 	}
+	if off := q.Get("offset"); off != "" {
+		if n, err := strconv.Atoi(off); err == nil {
+			opts.Offset = n
+		}
+	}
 	runs, err := s.store.QueryRuns(r.Context(), opts)
 	if err != nil {
 		writeJSON(w, 500, map[string]any{"detail": err.Error()})
 		return
 	}
-	writeJSON(w, 200, map[string]any{"runs": runs})
+	writeJSON(w, 200, runs)
 }
 
-func (s *Server) runsBatch(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 32<<20))
+func (s *Server) runStats(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, s.store.Stats(r.Context()))
+}
+
+func (s *Server) runsQuery(w http.ResponseWriter, r *http.Request) {
+	body, err := readJSONBody(r, 4<<20)
 	if err != nil {
 		writeJSON(w, 400, map[string]any{"detail": err.Error()})
 		return
 	}
-	body, err = ingest.MaybeDecompress(body, r.Header.Get("Content-Encoding"))
+	var payload map[string]any
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &payload); err != nil {
+			writeJSON(w, 422, map[string]any{"detail": err.Error()})
+			return
+		}
+	}
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	opts := store.QueryOpts{Limit: 100}
+	if v, ok := payload["limit"]; ok {
+		opts.Limit = asIntAny(v)
+	}
+	if v, ok := payload["offset"]; ok {
+		opts.Offset = asIntAny(v)
+	}
+	if t, ok := payload["trace"].(string); ok && t != "" {
+		opts.Trace = t
+	}
+	if t, ok := payload["parent_run"].(string); ok && t != "" {
+		opts.ParentRun = t
+	}
+	if t, ok := payload["run_type"].(string); ok && t != "" {
+		opts.RunType = t
+	}
+	if t, ok := payload["name"].(string); ok && t != "" {
+		opts.Name = t
+	}
+	if payload["error"] == true {
+		opts.ErrorOnly = true
+	}
+	if v, ok := payload["is_root"]; ok {
+		switch b := v.(type) {
+		case bool:
+			opts.IsRoot = &b
+		}
+	}
+	if st, ok := payload["start_time"].(string); ok && st != "" {
+		if t := parseTimeAny(st); t != nil {
+			opts.StartAfter = t
+		}
+	}
+	// session: string | []string of UUIDs
+	switch sess := payload["session"].(type) {
+	case string:
+		if sess != "" {
+			opts.SessionIDs = []string{sess}
+		}
+	case []any:
+		for _, x := range sess {
+			if s, ok := x.(string); ok && s != "" {
+				opts.SessionIDs = append(opts.SessionIDs, s)
+			}
+		}
+	}
+	switch ids := payload["id"].(type) {
+	case string:
+		opts.IDs = []string{ids}
+	case []any:
+		for _, x := range ids {
+			if s, ok := x.(string); ok {
+				opts.IDs = append(opts.IDs, s)
+			}
+		}
+	}
+	runs, err := s.store.QueryRuns(r.Context(), opts)
+	if err != nil {
+		writeJSON(w, 500, map[string]any{"detail": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"runs": runs, "cursors": map[string]any{"next": nil}})
+}
+
+func (s *Server) runsBatch(w http.ResponseWriter, r *http.Request) {
+	body, err := readJSONBody(r, 32<<20)
 	if err != nil {
 		writeJSON(w, 400, map[string]any{"detail": err.Error()})
 		return
@@ -188,12 +303,7 @@ func (s *Server) runsBatch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) runsMultipart(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 64<<20))
-	if err != nil {
-		writeJSON(w, 400, map[string]any{"detail": err.Error()})
-		return
-	}
-	body, err = ingest.MaybeDecompress(body, r.Header.Get("Content-Encoding"))
+	body, err := readJSONBody(r, 64<<20)
 	if err != nil {
 		writeJSON(w, 400, map[string]any{"detail": err.Error()})
 		return
@@ -205,13 +315,34 @@ func (s *Server) runsMultipart(w http.ResponseWriter, r *http.Request) {
 	}
 	parts := ingest.ParseMultipart(body, boundary)
 	batch := ingest.BatchFromParts(parts)
-	result := s.store.PersistBatch(r.Context(), batch)
-	writeJSON(w, 202, result)
+	_ = s.store.PersistBatch(r.Context(), batch)
+	// LangSmith-local / SDK parity: empty 204
+	w.WriteHeader(204)
+}
+
+func (s *Server) getAttachment(w http.ResponseWriter, r *http.Request) {
+	data, ct, err := s.store.GetAttachment(r.Context(), r.PathValue("id"), r.PathValue("name"))
+	if err != nil {
+		writeJSON(w, 404, map[string]any{"detail": "not found"})
+		return
+	}
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.WriteHeader(200)
+	_, _ = w.Write(data)
 }
 
 func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
+	body, err := readJSONBody(r, 1<<20)
+	if err != nil {
+		writeJSON(w, 400, map[string]any{"detail": err.Error()})
+		return
+	}
 	var payload map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	if err := json.Unmarshal(body, &payload); err != nil {
 		writeJSON(w, 422, map[string]any{"detail": err.Error()})
 		return
 	}
@@ -248,17 +379,81 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, sess)
 }
 
-func (s *Server) createFeedback(w http.ResponseWriter, r *http.Request) {
+func (s *Server) patchSession(w http.ResponseWriter, r *http.Request) {
+	body, err := readJSONBody(r, 1<<20)
+	if err != nil {
+		writeJSON(w, 400, map[string]any{"detail": err.Error()})
+		return
+	}
 	var payload map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	if err := json.Unmarshal(body, &payload); err != nil {
 		writeJSON(w, 422, map[string]any{"detail": err.Error()})
 		return
 	}
-	if err := s.store.CreateFeedback(r.Context(), payload); err != nil {
+	sess, err := s.store.UpdateSession(r.Context(), r.PathValue("id"), payload)
+	if err != nil {
+		writeJSON(w, 404, map[string]any{"detail": "not found"})
+		return
+	}
+	writeJSON(w, 200, sess)
+}
+
+func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.DeleteSession(r.Context(), r.PathValue("id")); err != nil {
 		writeJSON(w, 500, map[string]any{"detail": err.Error()})
 		return
 	}
-	writeJSON(w, 202, map[string]any{"id": payload["id"]})
+	w.WriteHeader(204)
+}
+
+func (s *Server) sessionRuns(w http.ResponseWriter, r *http.Request) {
+	limit, offset := 100, 0
+	if lim := r.URL.Query().Get("limit"); lim != "" {
+		if n, err := strconv.Atoi(lim); err == nil {
+			limit = n
+		}
+	}
+	if off := r.URL.Query().Get("offset"); off != "" {
+		if n, err := strconv.Atoi(off); err == nil {
+			offset = n
+		}
+	}
+	runs, err := s.store.QueryRuns(r.Context(), store.QueryOpts{
+		SessionIDs: []string{r.PathValue("id")}, Limit: limit, Offset: offset,
+	})
+	if err != nil {
+		writeJSON(w, 500, map[string]any{"detail": err.Error()})
+		return
+	}
+	writeJSON(w, 200, runs)
+}
+
+func (s *Server) createFeedback(w http.ResponseWriter, r *http.Request) {
+	body, err := readJSONBody(r, 4<<20)
+	if err != nil {
+		writeJSON(w, 400, map[string]any{"detail": err.Error()})
+		return
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		writeJSON(w, 422, map[string]any{"detail": err.Error()})
+		return
+	}
+	fb, err := s.store.CreateFeedbackFull(r.Context(), payload)
+	if err != nil {
+		writeJSON(w, 500, map[string]any{"detail": err.Error()})
+		return
+	}
+	writeJSON(w, 200, fb)
+}
+
+func (s *Server) listFeedback(w http.ResponseWriter, r *http.Request) {
+	list, err := s.store.ListFeedback(r.Context(), r.URL.Query().Get("run_id"), r.URL.Query().Get("key"))
+	if err != nil {
+		writeJSON(w, 500, map[string]any{"detail": err.Error()})
+		return
+	}
+	writeJSON(w, 200, list)
 }
 
 func (s *Server) uiIndex(w http.ResponseWriter, r *http.Request) {
@@ -386,4 +581,3 @@ func LogRequests(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
-

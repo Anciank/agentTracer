@@ -1,0 +1,18 @@
+# Override for isolated M2 smoke/load on port 1985.
+# Usage: docker compose -p at-m2 -f docker-compose.yml -f deploy/docker-compose.at-m2.yml up -d --build
+# Tear down: docker compose -p at-m2 -f docker-compose.yml -f deploy/docker-compose.at-m2.yml down -v
+services:
+  postgres:
+    container_name: at-m2-postgres
+    mem_limit: 512m
+  minio:
+    container_name: at-m2-minio
+    image: docker.io/pgsty/silo:RELEASE.2026-10-26T00-00-00Z
+    mem_limit: 256m
+  app:
+    container_name: at-m2-app
+    ports:
+      - "1985:1984"
+    mem_limit: 512m
+    environment:
+      GOMEMLIMIT: 400MiB

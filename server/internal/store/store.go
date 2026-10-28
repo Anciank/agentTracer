@@ -320,6 +320,7 @@ func (s *Store) UpsertRun(ctx context.Context, payload map[string]any, op string
 		}
 	}
 	errorStr := asString(merged["error"])
+	inTok, outTok, totTok, modelName := extractUsage(merged)
 	dotted := asString(merged["dotted_order"])
 	traceID := asUUID(merged["trace_id"])
 	if traceID == nil {
@@ -330,13 +331,32 @@ func (s *Store) UpsertRun(ctx context.Context, payload map[string]any, op string
 	start := parseTime(merged["start_time"])
 	end := parseTime(merged["end_time"])
 
+	// Shallow-merge extra on patch
+	if op == "patch" && existing != nil {
+		if incoming, ok := payload["extra"].(map[string]any); ok {
+			base := map[string]any{}
+			if em, ok := existing["extra"].(map[string]any); ok {
+				for k, v := range em {
+					base[k] = v
+				}
+			}
+			for k, v := range incoming {
+				if v != nil {
+					base[k] = v
+				}
+			}
+			merged["extra"] = base
+		}
+	}
+
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO runs (
 			id, name, run_type, session_id, parent_run_id, dotted_order, trace_id,
 			start_time, end_time, status, error, inputs, outputs, extra, events, tags,
-			serialized, inputs_preview, outputs_preview, reference_example_id, created_at, updated_at
+			serialized, inputs_preview, outputs_preview, reference_example_id,
+			input_tokens, output_tokens, total_tokens, model, created_at, updated_at
 		) VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,now(),now()
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,now(),now()
 		)
 		ON CONFLICT (id) DO UPDATE SET
 			name=EXCLUDED.name,
@@ -358,12 +378,17 @@ func (s *Store) UpsertRun(ctx context.Context, payload map[string]any, op string
 			inputs_preview=CASE WHEN EXCLUDED.inputs_preview='' THEN runs.inputs_preview ELSE EXCLUDED.inputs_preview END,
 			outputs_preview=CASE WHEN EXCLUDED.outputs_preview='' THEN runs.outputs_preview ELSE EXCLUDED.outputs_preview END,
 			reference_example_id=COALESCE(EXCLUDED.reference_example_id, runs.reference_example_id),
+			input_tokens=CASE WHEN EXCLUDED.input_tokens=0 THEN runs.input_tokens ELSE EXCLUDED.input_tokens END,
+			output_tokens=CASE WHEN EXCLUDED.output_tokens=0 THEN runs.output_tokens ELSE EXCLUDED.output_tokens END,
+			total_tokens=CASE WHEN EXCLUDED.total_tokens=0 THEN runs.total_tokens ELSE EXCLUDED.total_tokens END,
+			model=CASE WHEN EXCLUDED.model='' THEN runs.model ELSE EXCLUDED.model END,
 			updated_at=now()`,
 		*runID, name, runType, sessionID, parentID, dotted, traceID,
 		start, end, status, errorStr,
 		toJSON(merged["inputs"]), toJSON(merged["outputs"]), toJSONOr(merged["extra"], "{}"),
 		toJSONOr(merged["events"], "[]"), toJSONOr(merged["tags"], "[]"), toJSON(merged["serialized"]),
 		preview(merged["inputs"], 200), preview(merged["outputs"], 200), refID,
+		inTok, outTok, totTok, modelName,
 	)
 	return err
 }
@@ -380,7 +405,8 @@ func (s *Store) GetRun(ctx context.Context, id string) (map[string]any, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT id, name, run_type, session_id, parent_run_id, dotted_order, trace_id,
 			start_time, end_time, status, error, inputs, outputs, extra, events, tags,
-			serialized, inputs_preview, outputs_preview, reference_example_id
+			serialized, inputs_preview, outputs_preview, reference_example_id,
+			input_tokens, output_tokens, total_tokens, model
 		FROM runs WHERE id=$1`, uid)
 	return scanRun(row)
 }
@@ -393,21 +419,24 @@ func scanRun(row scannable) (map[string]any, error) {
 	var (
 		id                                    uuid.UUID
 		name, runType, dotted, status, errStr string
-		inPrev, outPrev                       string
+		inPrev, outPrev, model                string
 		sessionID, parentID, traceID, refID   *uuid.UUID
 		start, end                            *time.Time
 		inputs, outputs, extra, events, tags  []byte
 		serialized                            []byte
+		inTok, outTok, totTok                 int
 	)
 	if err := row.Scan(&id, &name, &runType, &sessionID, &parentID, &dotted, &traceID,
 		&start, &end, &status, &errStr, &inputs, &outputs, &extra, &events, &tags,
-		&serialized, &inPrev, &outPrev, &refID); err != nil {
+		&serialized, &inPrev, &outPrev, &refID, &inTok, &outTok, &totTok, &model); err != nil {
 		return nil, err
 	}
 	out := map[string]any{
 		"id": id.String(), "name": name, "run_type": runType,
 		"dotted_order": dotted, "status": status, "error": nilIfEmpty(errStr),
 		"inputs_preview": inPrev, "outputs_preview": outPrev,
+		"input_tokens": inTok, "output_tokens": outTok, "total_tokens": totTok,
+		"model": nilIfEmpty(model),
 	}
 	if sessionID != nil {
 		out["session_id"] = sessionID.String()
@@ -475,6 +504,38 @@ func (s *Store) QueryRuns(ctx context.Context, opts QueryOpts) ([]map[string]any
 	if opts.ErrorOnly {
 		where = append(where, "error IS NOT NULL AND error <> ''")
 	}
+	if opts.ParentRun != "" {
+		where = append(where, fmt.Sprintf("parent_run_id=$%d", n))
+		args = append(args, opts.ParentRun)
+		n++
+	}
+	if opts.RunType != "" {
+		where = append(where, fmt.Sprintf("run_type=$%d", n))
+		args = append(args, opts.RunType)
+		n++
+	}
+	if opts.Name != "" {
+		where = append(where, fmt.Sprintf("name=$%d", n))
+		args = append(args, opts.Name)
+		n++
+	}
+	if len(opts.IDs) > 0 {
+		where = append(where, fmt.Sprintf("id = ANY($%d)", n))
+		args = append(args, opts.IDs)
+		n++
+	}
+	if opts.IsRoot != nil {
+		if *opts.IsRoot {
+			where = append(where, "parent_run_id IS NULL")
+		} else {
+			where = append(where, "parent_run_id IS NOT NULL")
+		}
+	}
+	if opts.StartAfter != nil {
+		where = append(where, fmt.Sprintf("start_time >= $%d", n))
+		args = append(args, *opts.StartAfter)
+		n++
+	}
 	limit := opts.Limit
 	if limit == 0 {
 		limit = 100
@@ -482,11 +543,16 @@ func (s *Store) QueryRuns(ctx context.Context, opts QueryOpts) ([]map[string]any
 	if opts.Unlimited {
 		limit = 100000
 	}
+	offset := opts.Offset
+	if offset < 0 {
+		offset = 0
+	}
 	q := fmt.Sprintf(`SELECT id, name, run_type, session_id, parent_run_id, dotted_order, trace_id,
 		start_time, end_time, status, error, inputs, outputs, extra, events, tags,
-		serialized, inputs_preview, outputs_preview, reference_example_id
-		FROM runs WHERE %s ORDER BY start_time DESC NULLS LAST LIMIT %d`,
-		strings.Join(where, " AND "), limit)
+		serialized, inputs_preview, outputs_preview, reference_example_id,
+		input_tokens, output_tokens, total_tokens, model
+		FROM runs WHERE %s ORDER BY start_time DESC NULLS LAST LIMIT %d OFFSET %d`,
+		strings.Join(where, " AND "), limit, offset)
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
@@ -510,8 +576,15 @@ type QueryOpts struct {
 	Trace      string
 	Traces     []string
 	SessionIDs []string
+	ParentRun  string
+	RunType    string
+	Name       string
+	IDs        []string
+	IsRoot     *bool
 	ErrorOnly  bool
+	StartAfter *time.Time
 	Limit      int
+	Offset     int
 	Unlimited  bool
 }
 
@@ -549,28 +622,7 @@ func (s *Store) ListTraceIDs(ctx context.Context, sessionIDs []string, limit int
 }
 
 func (s *Store) CreateFeedback(ctx context.Context, payload map[string]any) error {
-	id := asUUID(payload["id"])
-	if id == nil {
-		u := uuid.New()
-		id = &u
-	}
-	runID := asUUID(payload["run_id"])
-	var score *float64
-	switch v := payload["score"].(type) {
-	case float64:
-		score = &v
-	case json.Number:
-		f, _ := v.Float64()
-		score = &f
-	}
-	_, err := s.pool.Exec(ctx, `
-		INSERT INTO feedback (id, run_id, key, score, value, comment, correction, feedback_source)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-		ON CONFLICT (id) DO UPDATE SET
-			score=EXCLUDED.score, value=EXCLUDED.value, comment=EXCLUDED.comment`,
-		*id, runID, asString(payload["key"]), score,
-		toJSON(payload["value"]), asString(payload["comment"]),
-		toJSON(payload["correction"]), toJSON(payload["feedback_source"]))
+	_, err := s.CreateFeedbackFull(ctx, payload)
 	return err
 }
 

@@ -349,3 +349,21 @@ func orDefault(v any, def string) string {
 	}
 	return def
 }
+
+// RunNode is the exported LangGraph node extractor.
+func RunNode(run map[string]any) any { return runNode(run) }
+
+// DepthOf is the exported depth calculator.
+func DepthOf(run map[string]any, byID map[string]map[string]any) int {
+	return depthOf(run, byID)
+}
+
+// SelfTimeMs returns self time in milliseconds (UI API units).
+func SelfTimeMs(run map[string]any, runs []map[string]any) *int {
+	sec := selfTime(run, runs)
+	if sec == nil {
+		return nil
+	}
+	ms := int((*sec) * 1000)
+	return &ms
+}

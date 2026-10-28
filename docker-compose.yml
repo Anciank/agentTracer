@@ -27,7 +27,7 @@ services:
     restart: unless-stopped
 
   minio:
-    image: docker.io/pgsty/silo:latest
+    image: docker.io/pgsty/silo:RELEASE.2026-10-26T00-00-00Z
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin

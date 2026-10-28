@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
-	"embed"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"syscall"
 	"time"
 
@@ -15,10 +15,8 @@ import (
 	"github.com/Anciank/agentTracer/server/internal/api"
 	"github.com/Anciank/agentTracer/server/internal/config"
 	"github.com/Anciank/agentTracer/server/internal/store"
+	"github.com/Anciank/agentTracer/server/migrations"
 )
-
-//go:embed migrations/001_init.sql
-var migrationFS embed.FS
 
 func main() {
 	cfg, err := config.Load()
@@ -42,16 +40,25 @@ func main() {
 		time.Sleep(time.Second)
 	}
 
-	sqlBytes, err := migrationFS.ReadFile("migrations/001_init.sql")
+	entries, err := migrations.FS.ReadDir(".")
 	if err != nil {
-		// try relative path for non-embed builds
-		sqlBytes, err = os.ReadFile("migrations/001_init.sql")
-		if err != nil {
-			log.Fatalf("migration: %v", err)
+		log.Fatalf("migration list: %v", err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() && len(e.Name()) > 4 && e.Name()[len(e.Name())-4:] == ".sql" {
+			names = append(names, e.Name())
 		}
 	}
-	if err := store.Migrate(ctx, pool, string(sqlBytes)); err != nil {
-		log.Fatalf("migrate: %v", err)
+	sort.Strings(names)
+	for _, name := range names {
+		sqlBytes, err := migrations.FS.ReadFile(name)
+		if err != nil {
+			log.Fatalf("migration %s: %v", name, err)
+		}
+		if err := store.Migrate(ctx, pool, string(sqlBytes)); err != nil {
+			log.Fatalf("migrate %s: %v", name, err)
+		}
 	}
 
 	blob := store.NewS3Blob(cfg)
