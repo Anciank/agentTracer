@@ -2,10 +2,10 @@ package store
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
+	"github.com/Anciank/agentTracer/server/internal/dbtest"
 	"github.com/Anciank/agentTracer/server/migrations"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -13,10 +13,7 @@ import (
 
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("AGENTTRACER_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("AGENTTRACER_DATABASE_URL not set")
-	}
+	dsn := dbtest.TestDatabaseURL(t)
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {

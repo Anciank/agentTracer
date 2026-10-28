@@ -3,6 +3,9 @@
 # Brings up at-m2 from THIS checkout, restore-drills prod dump, verifies migrations
 # bootstrap, exercises deploy/backup, then `down -v` OUR stack only.
 # NEVER touches compose project `agenttracer` (:1984).
+# Note: Go unit/integration tests use AGENTTRACER_TEST_DATABASE_URL (DB name
+# must end in _test or scratch) — never AGENTTRACER_DATABASE_URL. This script
+# exercises the compose stack, not `go test`.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"

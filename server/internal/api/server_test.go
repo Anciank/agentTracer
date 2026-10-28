@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http/httptest"
-	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -18,16 +16,14 @@ import (
 	"github.com/klauspost/compress/zstd"
 
 	"github.com/Anciank/agentTracer/server/internal/config"
+	"github.com/Anciank/agentTracer/server/internal/dbtest"
 	"github.com/Anciank/agentTracer/server/internal/store"
 	"github.com/Anciank/agentTracer/server/migrations"
 )
 
 func testServer(t *testing.T) (*Server, string) {
 	t.Helper()
-	dsn := os.Getenv("AGENTTRACER_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("AGENTTRACER_DATABASE_URL not set")
-	}
+	dsn := dbtest.TestDatabaseURL(t)
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {

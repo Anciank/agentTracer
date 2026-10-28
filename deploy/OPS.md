@@ -29,3 +29,18 @@ AGENTTRACER_TAKEOVER_1985=1 ./deploy/test_on_1985.sh
 ```
 
 Scripts: `deploy/restore_drill.sh`, `deploy/test_on_1985.sh`, `deploy/backup.sh`, `deploy/deploy.sh`.
+
+## Unit / integration tests (DB)
+
+Never point `go test` at prod. DB tests use `AGENTTRACER_TEST_DATABASE_URL` only; names must end in `_test` or `scratch` (enforced by `internal/dbtest`). Example on the VPS throwaway PG:
+
+```bash
+docker run -d --name at-ops-mig-pg \
+  -e POSTGRES_USER=agenttracer -e POSTGRES_PASSWORD=agenttracer \
+  -e POSTGRES_DB=agenttracer_test postgres:16-alpine
+# ... wait for ready, then:
+export AGENTTRACER_TEST_DATABASE_URL="postgres://agenttracer:agenttracer@<pg-ip>:5432/agenttracer_test?sslmode=disable"
+# Do NOT export AGENTTRACER_DATABASE_URL for tests.
+go test ./...
+```
+

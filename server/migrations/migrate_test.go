@@ -2,19 +2,16 @@ package migrations
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Anciank/agentTracer/server/internal/dbtest"
 )
 
 func testDSN(t *testing.T) string {
 	t.Helper()
-	dsn := os.Getenv("AGENTTRACER_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("AGENTTRACER_DATABASE_URL not set")
-	}
-	return dsn
+	return dbtest.TestDatabaseURL(t)
 }
 
 func resetSchema(t *testing.T, pool *pgxpool.Pool) {
