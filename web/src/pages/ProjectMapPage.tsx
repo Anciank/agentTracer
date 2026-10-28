@@ -5,7 +5,7 @@ import { getGraph, getPaths, listProjects } from "../api/client";
 import type { EdgeStats, GraphWindow, NodeStats, PathGroup } from "../api/types";
 import { AgentMap } from "../components/AgentMap";
 import { ErrorState } from "../components/ErrorState";
-import { fmtInt, fmtPct } from "../lib/format";
+import { fmtDurMs, fmtInt, fmtPct } from "../lib/format";
 import { inferGraphMode, pickOther } from "../lib/graphLayout";
 import { isMapEndpointMissing } from "../lib/mapStatus";
 
@@ -236,18 +236,21 @@ export default function ProjectMapPage({ embedded, projectIdProp, windowProp }: 
             {paths.map((p) => {
               const errish = p.error_rate >= 0.05;
               const runLabel = p.count === 1 ? "1 run" : `${fmtInt(p.count)} runs`;
+              const failNodes = p.fail_nodes ?? [];
+              const isNew = !!p.is_new;
               return (
               <li key={p.fingerprint}>
                 <button
                   type="button"
-                  className={`path-row${errish ? " path-row-err" : ""}`}
+                  className={`path-row${errish ? " path-row-err" : ""}${isNew ? " path-row-new" : ""}`}
                   onClick={() => onPathClick(p)}
                 >
                   <div className="path-label" title={p.label}>
+                    {isNew ? <span className="path-new-pill" title="New vs previous window">new</span> : null}
                     {(p.steps?.length ? p.steps : [{ key: p.fingerprint, repeat: 1 }]).map((s, i) => (
                       <span key={`${s.key}-${i}`} className="path-step-wrap">
                         {i > 0 ? <span className="path-arrow" aria-hidden>→</span> : null}
-                        <span className="path-step">
+                        <span className={`path-step${failNodes.includes(s.key) ? " path-step-fail" : ""}`}>
                           {s.key}{s.repeat > 1 ? ` ×${s.repeat}` : ""}
                         </span>
                       </span>
@@ -255,6 +258,8 @@ export default function ProjectMapPage({ embedded, projectIdProp, windowProp }: 
                   </div>
                   <div className="path-meta">
                     {runLabel} · {fmtPct(p.share)} · err {fmtPct(p.error_rate)}
+                    {p.p95_ms != null ? ` · p95 ${fmtDurMs(p.p95_ms)}` : ""}
+                    {failNodes.length ? ` · fail ${failNodes.join(", ")}` : ""}
                   </div>
                 </button>
               </li>

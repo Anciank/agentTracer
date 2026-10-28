@@ -36,14 +36,18 @@ function node(
 function edge(
   partial: Partial<EdgeStats> & Pick<EdgeStats, "from" | "to" | "count" | "share">
 ): EdgeStats {
+  const error_count = partial.error_count ?? 0;
+  const error_rate =
+    partial.error_rate ?? (partial.count ? error_count / partial.count : 0);
   return {
     avg_ms: 40,
     p95_ms: 200,
-    error_count: 0,
     loop: false,
     repeat_avg: null,
     repeat_max: null,
     ...partial,
+    error_count,
+    error_rate,
   };
 }
 
@@ -199,6 +203,9 @@ const SUPPORT_PATHS: PathGroup[] = [
     count: 1200,
     share: 0.12,
     error_rate: 0.067,
+    p95_ms: 4200,
+    fail_nodes: ["tools", "validate"],
+    is_new: false,
     steps: [
       { key: "supervisor", repeat: 1 },
       { key: "route", repeat: 1 },
@@ -213,6 +220,9 @@ const SUPPORT_PATHS: PathGroup[] = [
     count: 900,
     share: 0.09,
     error_rate: 0.011,
+    p95_ms: 3800,
+    fail_nodes: [],
+    is_new: false,
     steps: [
       { key: "supervisor", repeat: 1 },
       { key: "route", repeat: 1 },
@@ -229,6 +239,9 @@ const SUPPORT_PATHS: PathGroup[] = [
     count: 140,
     share: 0.014,
     error_rate: 0.157,
+    p95_ms: 5100,
+    fail_nodes: ["refund"],
+    is_new: true,
     steps: [
       { key: "supervisor", repeat: 1 },
       { key: "route", repeat: 1 },
@@ -243,6 +256,9 @@ const SUPPORT_PATHS: PathGroup[] = [
     count: 60,
     share: 0.006,
     error_rate: 0.67,
+    p95_ms: 8900,
+    fail_nodes: ["escalate", "tools"],
+    is_new: false,
     steps: [
       { key: "supervisor", repeat: 1 },
       { key: "route", repeat: 1 },
@@ -263,6 +279,9 @@ export function getPathsFixture(projectId: string, window: GraphWindow = "24h"):
             count: 200,
             share: 0.44,
             error_rate: 0.2,
+            p95_ms: 7200,
+            fail_nodes: ["critique"],
+            is_new: true,
             steps: [
               { key: "plan", repeat: 1 },
               { key: "search", repeat: 1 },

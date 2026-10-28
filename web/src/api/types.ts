@@ -205,7 +205,7 @@ export type NodeStats = {
   truncated: boolean;
   error_rate_delta?: number | null;
   p95_ms_delta?: number | null;
-  /** Present only in fixtures / expand UI; server strips before JSON. */
+  /** On __other__ only: keys rolled into the bucket (API.md M3.5 follow-up). */
   rolled_keys?: string[];
 };
 
@@ -218,6 +218,8 @@ export type EdgeStats = {
   avg_ms: number | null;
   p95_ms: number | null;
   error_count: number;
+  /** Fraction 0–1; error_count / count (0 if count=0). */
+  error_rate: number;
   loop: boolean;
   repeat_avg: number | null;
   repeat_max: number | null;
@@ -246,6 +248,12 @@ export type PathGroup = {
   count: number;
   share: number;
   error_rate: number;
+  /** Root latency p95 for finished roots on this fingerprint; null if none. */
+  p95_ms: number | null;
+  /** Distinct node keys that errored on traces with this fingerprint (sorted). */
+  fail_nodes: string[];
+  /** Fingerprint absent from the previous equal-length window. */
+  is_new: boolean;
   steps: PathStep[];
 };
 

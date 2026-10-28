@@ -27,7 +27,10 @@
           "key": "agent",
           "repeat": 3
         }
-      ]
+      ],
+      "p95_ms": null,
+      "fail_nodes": [],
+      "is_new": false
     }
   ],
   "project": "lgtest-react_tools-smoke1-r0",

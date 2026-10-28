@@ -10,7 +10,8 @@
       "repeat_avg": 3,
       "repeat_max": 3,
       "share": 2,
-      "to": "inner_agent"
+      "to": "inner_agent",
+      "error_rate": 0.0
     },
     {
       "avg_ms": null,
@@ -22,7 +23,8 @@
       "repeat_avg": 2,
       "repeat_max": 2,
       "share": 1,
-      "to": "call_inner"
+      "to": "call_inner",
+      "error_rate": 0.0
     },
     {
       "avg_ms": null,
@@ -34,7 +36,8 @@
       "repeat_avg": null,
       "repeat_max": null,
       "share": 1,
-      "to": "tools"
+      "to": "tools",
+      "error_rate": 0.0
     },
     {
       "avg_ms": null,
@@ -46,7 +49,8 @@
       "repeat_avg": 2,
       "repeat_max": 2,
       "share": 1,
-      "to": "finalize"
+      "to": "finalize",
+      "error_rate": 0.0
     },
     {
       "avg_ms": null,
@@ -58,7 +62,8 @@
       "repeat_avg": null,
       "repeat_max": null,
       "share": 1,
-      "to": "call_inner"
+      "to": "call_inner",
+      "error_rate": 0.0
     },
     {
       "avg_ms": null,
@@ -70,7 +75,8 @@
       "repeat_avg": null,
       "repeat_max": null,
       "share": 1,
-      "to": "finalize"
+      "to": "finalize",
+      "error_rate": 0.0
     },
     {
       "avg_ms": null,
@@ -82,7 +88,8 @@
       "repeat_avg": null,
       "repeat_max": null,
       "share": 1,
-      "to": "inner_agent"
+      "to": "inner_agent",
+      "error_rate": 0.0
     },
     {
       "avg_ms": null,
@@ -94,7 +101,8 @@
       "repeat_avg": 2,
       "repeat_max": 2,
       "share": 1,
-      "to": "preamble"
+      "to": "preamble",
+      "error_rate": 0.0
     },
     {
       "avg_ms": null,
@@ -106,7 +114,8 @@
       "repeat_avg": null,
       "repeat_max": null,
       "share": 1,
-      "to": "inner_agent"
+      "to": "inner_agent",
+      "error_rate": 0.0
     },
     {
       "avg_ms": null,
@@ -118,7 +127,8 @@
       "repeat_avg": 2,
       "repeat_max": 2,
       "share": 1,
-      "to": "tools"
+      "to": "tools",
+      "error_rate": 0.0
     }
   ],
   "edges_hidden": [],

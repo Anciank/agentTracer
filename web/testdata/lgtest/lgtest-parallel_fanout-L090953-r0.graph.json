@@ -10,7 +10,8 @@
       "repeat_avg": 2,
       "repeat_max": 2,
       "share": 1,
-      "to": "join"
+      "to": "join",
+      "error_rate": 0.0
     },
     {
       "avg_ms": null,
@@ -22,7 +23,8 @@
       "repeat_avg": 2,
       "repeat_max": 2,
       "share": 1,
-      "to": "plan"
+      "to": "plan",
+      "error_rate": 0.0
     },
     {
       "avg_ms": null,
@@ -34,7 +36,8 @@
       "repeat_avg": null,
       "repeat_max": null,
       "share": 1,
-      "to": "worker"
+      "to": "worker",
+      "error_rate": 0.0
     },
     {
       "avg_ms": null,
@@ -46,7 +49,8 @@
       "repeat_avg": null,
       "repeat_max": null,
       "share": 1,
-      "to": "join"
+      "to": "join",
+      "error_rate": 0.0
     },
     {
       "avg_ms": null,
@@ -58,7 +62,8 @@
       "repeat_avg": 6,
       "repeat_max": 6,
       "share": 1,
-      "to": "worker"
+      "to": "worker",
+      "error_rate": 0.0
     }
   ],
   "edges_hidden": [],

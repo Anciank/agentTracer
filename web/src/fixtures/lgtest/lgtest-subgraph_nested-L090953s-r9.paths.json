@@ -31,7 +31,10 @@
           "key": "finalize",
           "repeat": 2
         }
-      ]
+      ],
+      "p95_ms": null,
+      "fail_nodes": [],
+      "is_new": false
     }
   ],
   "project": "lgtest-subgraph_nested-L090953s-r9",

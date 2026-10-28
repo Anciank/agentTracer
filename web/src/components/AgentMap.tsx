@@ -290,11 +290,22 @@ export function AgentMap({
             {layout.edges.map((e) => {
               const label = edgeLabel(e.kind, e.stats);
               const lw = Math.max(e.kind === "self" ? 22 : 28, label.length * 6.5 + 8);
+              const er = e.stats.error_rate ?? (e.stats.count ? e.stats.error_count / e.stats.count : 0);
+              const edgeFail = e.stats.error_count > 0 && er >= FAIL_ERROR_RATE;
+              const edgeWarn = e.stats.error_count > 0 && er < FAIL_ERROR_RATE;
+              const tip = [
+                `${e.stats.from} → ${e.stats.to}`,
+                `${e.stats.count} · share ${fmtPct(e.stats.share)}`,
+                e.stats.error_count > 0 ? `err ${fmtPct(er)} (${e.stats.error_count})` : null,
+                e.stats.p95_ms != null ? `p95 ${fmtDurMs(e.stats.p95_ms)}` : null,
+              ].filter(Boolean).join(" · ");
               return (
               <g
                 key={e.id}
                 data-edge={e.id}
                 data-edge-kind={e.kind}
+                data-edge-fail={edgeFail ? "1" : undefined}
+                data-edge-warn={edgeWarn ? "1" : undefined}
                 className="map-edge"
                 style={{ cursor: "pointer" }}
                 onClick={(ev) => {
@@ -302,11 +313,12 @@ export function AgentMap({
                   onEdgeClick(e.stats);
                 }}
               >
+                <title>{tip}</title>
                 <path d={e.d} fill="none" stroke="transparent" strokeWidth={12} />
                 <path
                   d={e.d}
                   fill="none"
-                  stroke={e.stats.error_count > 0 ? "var(--error)" : "var(--muted)"}
+                  stroke={edgeFail ? "var(--error)" : edgeWarn ? "var(--warn, #b45309)" : "var(--muted)"}
                   strokeWidth={e.kind === "self" ? 1.75 : e.kind === "back" ? 1.75 : 1.5}
                   strokeOpacity={e.kind === "back" ? 0.55 : 0.75}
                   strokeDasharray={e.kind === "back" ? "5 3" : undefined}

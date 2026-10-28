@@ -511,6 +511,19 @@ a { color: var(--accent-ink); }
   border-color: color-mix(in srgb, var(--error) 45%, var(--border));
   box-shadow: inset 3px 0 0 var(--error);
 }
+.path-row-new {
+  border-color: color-mix(in srgb, var(--focus) 40%, var(--border));
+}
+.path-new-pill {
+  display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.02em;
+  text-transform: uppercase; padding: 1px 6px; border-radius: 999px;
+  background: color-mix(in srgb, var(--focus) 18%, var(--chip)); color: var(--focus);
+  margin-right: 2px;
+}
+.path-step-fail {
+  background: color-mix(in srgb, var(--error) 22%, var(--chip));
+  color: var(--error);
+}
 .path-label { font-size: 12px; font-weight: 600; display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
 .path-step-wrap { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; }
 .path-arrow { color: var(--muted); font-size: 11px; font-weight: 500; }
