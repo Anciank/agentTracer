@@ -3,6 +3,7 @@ package traces
 import (
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -24,6 +25,41 @@ func parseTime(v any) *time.Time {
 	return nil
 }
 
+// staleAfterNs is the open-run age (nanoseconds) at/above which RunStatus returns "stale".
+// Defaults to 1h. Set via SetStaleAfter from config at process start.
+var staleAfterNs atomic.Int64
+
+func init() {
+	staleAfterNs.Store(int64(time.Hour))
+}
+
+// SetStaleAfter configures the read-time stale threshold. Zero/negative keeps the current value.
+func SetStaleAfter(d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	staleAfterNs.Store(int64(d))
+}
+
+// StaleAfter returns the configured threshold.
+func StaleAfter() time.Duration {
+	return time.Duration(staleAfterNs.Load())
+}
+
+// IsStale reports whether an open run (no end_time) with start_time age >= threshold is stale.
+// Missing/unparseable start_time is not stale (still "running").
+func IsStale(run map[string]any, now time.Time) bool {
+	if run["end_time"] != nil && run["end_time"] != "" {
+		return false
+	}
+	start := parseTime(run["start_time"])
+	if start == nil {
+		return false
+	}
+	age := now.Sub(*start)
+	return age >= StaleAfter()
+}
+
 func RunLatency(run map[string]any) *float64 {
 	start, end := parseTime(run["start_time"]), parseTime(run["end_time"])
 	if start == nil || end == nil {
@@ -34,13 +70,21 @@ func RunLatency(run map[string]any) *float64 {
 }
 
 func RunStatus(run map[string]any) string {
+	return RunStatusAt(run, time.Now().UTC())
+}
+
+// RunStatusAt is RunStatus with a fixed clock (tests / boundaries).
+func RunStatusAt(run map[string]any, now time.Time) string {
 	if err, ok := run["error"]; ok && err != nil && err != "" {
 		return "error"
 	}
-	if st, ok := run["status"].(string); ok && st == "error" {
+	if st, ok := run["status"].(string); ok && strings.EqualFold(st, "error") {
 		return "error"
 	}
 	if run["end_time"] == nil || run["end_time"] == "" {
+		if IsStale(run, now) {
+			return "stale"
+		}
 		return "running"
 	}
 	return "success"
@@ -160,8 +204,9 @@ func GroupByTrace(runs []map[string]any) map[string][]map[string]any {
 func TraceSummary(traceID string, runs []map[string]any) map[string]any {
 	var roots []map[string]any
 	var starts, ends []*time.Time
-	errCount, runningCount := 0, 0
+	errCount, runningCount, staleCount := 0, 0, 0
 	types := map[string]int{}
+	now := time.Now().UTC()
 	for _, r := range runs {
 		if r["parent_run_id"] == nil || r["parent_run_id"] == "" {
 			roots = append(roots, r)
@@ -172,11 +217,13 @@ func TraceSummary(traceID string, runs []map[string]any) map[string]any {
 		if et := parseTime(r["end_time"]); et != nil {
 			ends = append(ends, et)
 		}
-		if RunStatus(r) == "error" {
+		switch RunStatusAt(r, now) {
+		case "error":
 			errCount++
-		}
-		if RunStatus(r) == "running" {
+		case "running":
 			runningCount++
+		case "stale":
+			staleCount++
 		}
 		rt, _ := r["run_type"].(string)
 		if rt == "" {
@@ -205,6 +252,14 @@ func TraceSummary(traceID string, runs []map[string]any) map[string]any {
 			end = e
 		}
 	}
+	status := "success"
+	if errCount > 0 {
+		status = "error"
+	} else if runningCount > 0 {
+		status = "running"
+	} else if staleCount > 0 {
+		status = "stale"
+	}
 	out := map[string]any{
 		"trace_id":      traceID,
 		"name":          name,
@@ -212,6 +267,8 @@ func TraceSummary(traceID string, runs []map[string]any) map[string]any {
 		"run_count":     len(runs),
 		"error_count":   errCount,
 		"running_count": runningCount,
+		"stale_count":   staleCount,
+		"status":        status,
 		"tokens":        map[string]int{"input": 0, "output": 0, "total": 0},
 		"run_types":     types,
 	}

@@ -44,8 +44,9 @@ Integers ≥ 0. Missing sides are `0`, not null.
   "run_types": { "chain": 12, "llm": 8, "tool": 13 }
 }
 ```
-- `status`: `"success"` | `"error"` | `"running"` — derived: any error → `error`; else any running → `running`; else `success`.
-- `end`: `null` while any run is still running.
+- `status`: `"success"` | `"error"` | `"running"` | `"stale"` — derived: any error → `error`; else any running → `running`; else any stale → `stale`; else `success`.
+- `stale_count`: runs with no `end_time` whose `start_time` age is ≥ `AGENTTRACER_STALE_AFTER` (default `1h`). Read-time only; no row rewrite.
+- `end`: `null` while any run is still running or stale.
 - `duration_ms`: root span wall time (`end - start`); `null` if `end` is null.
 - `model`: most-frequent non-empty model among LLM runs in the trace; ties → lexicographically first; `null` if none.
 - `run_types`: counts by `run_type` string; empty object if none.
@@ -127,7 +128,7 @@ Summary rows only. Keyset pagination.
 | --- | --- | --- |
 | `project` | string | Session/project **name**. Omit = all. |
 | `q` | string | ILIKE over root `name` and any run `error` in the trace. |
-| `status` | string | `success` \| `error` \| `running` |
+| `status` | string | `success` \| `error` \| `running` \| `stale` |
 | `run_type` | string | Trace contains ≥1 run of this type. |
 | `model` | string | Exact match on denormalized model (root or any LLM run — match list-row `model`). |
 | `min_tokens` | int | Trace `tokens.total` ≥ N. |

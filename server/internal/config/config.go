@@ -21,6 +21,8 @@ type Config struct {
 	S3UsePathStyle bool
 	HotRetention   time.Duration
 	ColdRetention  time.Duration
+	// StaleAfter marks open runs (no end_time) older than this as status "stale".
+	StaleAfter time.Duration
 }
 
 func Load() (Config, error) {
@@ -45,6 +47,7 @@ func Load() (Config, error) {
 		S3UsePathStyle: envBool("AGENTTRACER_S3_PATH_STYLE", true),
 		HotRetention:   envDurationDays("AGENTTRACER_HOT_RETENTION_DAYS", 14),
 		ColdRetention:  envDurationDays("AGENTTRACER_COLD_RETENTION_DAYS", 180),
+		StaleAfter:     envStaleAfter("AGENTTRACER_STALE_AFTER", time.Hour),
 	}
 	if cfg.APIKey == "" {
 		return cfg, fmt.Errorf("AGENTTRACER_API_KEY is required")
@@ -81,6 +84,28 @@ func envDurationDays(k string, defDays int) time.Duration {
 		return time.Duration(defDays) * 24 * time.Hour
 	}
 	return time.Duration(n) * 24 * time.Hour
+}
+
+// envStaleAfter parses a Go duration (e.g. "1h", "90m") or an integer hour count.
+// Empty / invalid → def. Zero or negative → def (stale detection always has a floor).
+func envStaleAfter(k string, def time.Duration) time.Duration {
+	v := strings.TrimSpace(os.Getenv(k))
+	if v == "" {
+		return def
+	}
+	if d, err := time.ParseDuration(v); err == nil {
+		if d <= 0 {
+			return def
+		}
+		return d
+	}
+	if n, err := strconv.Atoi(v); err == nil {
+		if n <= 0 {
+			return def
+		}
+		return time.Duration(n) * time.Hour
+	}
+	return def
 }
 
 func splitCSV(s string) []string {

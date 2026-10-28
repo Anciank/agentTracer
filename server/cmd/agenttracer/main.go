@@ -14,6 +14,7 @@ import (
 	"github.com/Anciank/agentTracer/server/internal/api"
 	"github.com/Anciank/agentTracer/server/internal/config"
 	"github.com/Anciank/agentTracer/server/internal/store"
+	"github.com/Anciank/agentTracer/server/internal/traces"
 	"github.com/Anciank/agentTracer/server/migrations"
 )
 
@@ -53,6 +54,7 @@ func main() {
 		time.Sleep(time.Second)
 	}
 
+	traces.SetStaleAfter(cfg.StaleAfter)
 	st := store.New(pool, blob)
 	if os.Getenv("AGENTTRACER_BACKFILL_GRAPH_CACHE") == "1" {
 		wrote, failed, err := st.BackfillGraphCache(ctx, 0)

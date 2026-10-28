@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/Anciank/agentTracer/server/internal/traces"
 )
 
 type TraceListOpts struct {
@@ -347,7 +349,7 @@ func (s *Store) UIListTraces(ctx context.Context, opts TraceListOpts) ([]map[str
 }
 
 func buildUITraceSummary(traceID, project string, runs []map[string]any) map[string]any {
-	errCount, running := 0, 0
+	errCount, running, stale := 0, 0, 0
 	inTok, outTok, totTok := 0, 0, 0
 	types := map[string]int{}
 	modelCounts := map[string]int{}
@@ -360,11 +362,13 @@ func buildUITraceSummary(traceID, project string, runs []map[string]any) map[str
 			}
 		}
 		st := runStatus(r)
-		if RunHasError(r) || st == "error" {
+		switch st {
+		case "error":
 			errCount++
-		}
-		if st == "running" {
+		case "running":
 			running++
+		case "stale":
+			stale++
 		}
 		rt := asString(r["run_type"])
 		if rt == "" {
@@ -393,6 +397,8 @@ func buildUITraceSummary(traceID, project string, runs []map[string]any) map[str
 		status = "error"
 	} else if running > 0 {
 		status = "running"
+	} else if stale > 0 {
+		status = "stale"
 	}
 	var model any
 	best, bestN := "", 0
@@ -406,7 +412,7 @@ func buildUITraceSummary(traceID, project string, runs []map[string]any) map[str
 	}
 	out := map[string]any{
 		"trace_id": traceID, "name": name, "project": project,
-		"run_count": len(runs), "error_count": errCount, "running_count": running,
+		"run_count": len(runs), "error_count": errCount, "running_count": running, "stale_count": stale,
 		"status": status,
 		"tokens": map[string]any{"input": inTok, "output": outTok, "total": totTok},
 		"model":  model, "run_types": types,
@@ -416,12 +422,12 @@ func buildUITraceSummary(traceID, project string, runs []map[string]any) map[str
 	} else {
 		out["start"] = nil
 	}
-	if endMax != nil && running == 0 {
+	if endMax != nil && running == 0 && stale == 0 {
 		out["end"] = endMax.UTC().Format(time.RFC3339Nano)
 	} else {
 		out["end"] = nil
 	}
-	if startMin != nil && endMax != nil && running == 0 {
+	if startMin != nil && endMax != nil && running == 0 && stale == 0 {
 		out["duration_ms"] = int(endMax.Sub(*startMin).Milliseconds())
 	} else {
 		out["duration_ms"] = nil
@@ -430,21 +436,7 @@ func buildUITraceSummary(traceID, project string, runs []map[string]any) map[str
 }
 
 func runStatus(r map[string]any) string {
-	if RunHasError(r) {
-		return "error"
-	}
-	if r["end_time"] == nil || asString(r["end_time"]) == "" {
-		st := asString(r["status"])
-		if st == "success" || st == "error" {
-			return st
-		}
-		return "running"
-	}
-	st := asString(r["status"])
-	if st == "error" {
-		return "error"
-	}
-	return "success"
+	return traces.RunStatus(r)
 }
 
 func (s *Store) UIStats(ctx context.Context, project string, from, to *time.Time) (map[string]any, error) {
