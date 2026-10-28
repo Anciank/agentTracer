@@ -340,11 +340,9 @@ func (s *Store) UpsertRun(ctx context.Context, payload map[string]any, op string
 		}
 	}
 	dotted := asString(merged["dotted_order"])
-	traceID := asUUID(merged["trace_id"])
-	if traceID == nil {
-		traceID = runID
-	}
 	parentID := asUUID(merged["parent_run_id"])
+	traceID := s.resolveTraceID(ctx, *runID, merged)
+	merged["trace_id"] = traceID.String()
 	refID := asUUID(merged["reference_example_id"])
 	start := parseTime(merged["start_time"])
 	end := parseTime(merged["end_time"])

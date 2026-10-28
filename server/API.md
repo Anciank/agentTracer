@@ -358,3 +358,20 @@ At ingest (create and PATCH), runs denormalize:
 _(2026-10-28)_ LangGraph denorm columns (`langgraph_node`/`langgraph_step`/`path_fingerprint`) + ingest extraction/fallback; index `(session_id, langgraph_node, start_time)`.
 _(2026-10-28)_ SSE `run_upsert` is mandatory on every run create/PATCH (post-merge SpanSummary); relative depth/offset_ms may be briefly stale.
 
+---
+
+## Ingest notes (M2 wire)
+
+### `trace_id` derivation
+On every ingest path (`POST /runs`, `/runs/batch`, `/runs/multipart`) and on `PATCH`, if `trace_id` is missing **or** equals the run's own `id` while `parent_run_id` is set, the server derives `trace_id` from `dotted_order`: segments are `.`-joined `<YYYYMMDDTHHMMSSffffffZ><uuid>`; the first segment's trailing UUID is the root run id (= trace id). If `dotted_order` is absent, fall back to the parent's stored `trace_id` via `GetRun`. Roots without either keep their own id.
+
+### Token denormalization priority
+`input_tokens` / `output_tokens` / `total_tokens` (and `model`) are filled in this order — first non-empty wins; nested sources are read before denormalized columns so a PATCH with new usage overwrites stale columns:
+
+1. `outputs.llm_output.token_usage` (`prompt_tokens` / `completion_tokens` / `total_tokens`)
+2. `outputs.generations[*][*].message(.kwargs).usage_metadata` and flat `generations[*].message(.kwargs).usage_metadata` (`input_tokens` / `output_tokens` / `total_tokens`)
+3. `extra.metadata.usage_metadata`
+4. Existing digs under `extra` / `outputs` / `inputs` (`usage`, `token_usage`, `usage_metadata`, bare token fields, `invocation_params` for model)
+5. Top-level `input_tokens` / `output_tokens` / `total_tokens` / `model` columns
+
+`total_tokens` is computed as `input + output` when still missing.
