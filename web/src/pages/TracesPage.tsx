@@ -93,10 +93,16 @@ export function TracesPage() {
 
   useEffect(() => {
     if (!summaryQ.data || runId) return;
+    // Prefer an error span when filtering/looking at failures; else root so Overview fills.
     if (filters.status === "error" || summaryQ.data.summary.status === "error") {
       const err = summaryQ.data.rows.find((r) => r.has_error || r.status === "error");
-      if (err) setRunId(err.id);
+      if (err) {
+        setRunId(err.id);
+        return;
+      }
     }
+    const root = summaryQ.data.rows.find((r) => !isOrphanGroupId(r.id));
+    if (root) setRunId(root.id);
   }, [summaryQ.data, runId, filters.status]);
 
   useEffect(() => {
