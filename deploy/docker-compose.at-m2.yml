@@ -1,6 +1,7 @@
 # Override for isolated M2 smoke/load on port 1985.
 # Usage: docker compose -p at-m2 -f docker-compose.yml -f deploy/docker-compose.at-m2.yml up -d --build
 # Tear down: docker compose -p at-m2 -f docker-compose.yml -f deploy/docker-compose.at-m2.yml down -v
+# Note: ports use !override so we do NOT also bind host 1984 (prod stack keeps that).
 services:
   postgres:
     container_name: at-m2-postgres
@@ -11,7 +12,7 @@ services:
     mem_limit: 256m
   app:
     container_name: at-m2-app
-    ports:
+    ports: !override
       - "1985:1984"
     mem_limit: 512m
     environment:
