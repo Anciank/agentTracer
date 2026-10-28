@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Nightly (or pre-deploy) backup: gzip pg_dump + silo/minio bucket mirror.
+# Layout under ~/backups (override with AGENTTRACER_BACKUP_ROOT):
+#   postgres/daily/agenttracer-YYYYMMDD-HHMMSS.sql.gz
+#   postgres/weekly/agenttracer-YYYYMMDD.sql.gz  (Sunday copies)
+#   silo/YYYYMMDD-HHMMSS/…  (mc mirror)
+# Retention: 7 daily dumps, 4 weekly dumps. Silo mirrors: keep last 7.
+set -euo pipefail
+
+ROOT="${AGENTTRACER_BACKUP_ROOT:-$HOME/backups}"
+COMPOSE_PROJECT="${AGENTTRACER_COMPOSE_PROJECT:-agenttracer}"
+PG_CONTAINER="${AGENTTRACER_PG_CONTAINER:-${COMPOSE_PROJECT}-postgres-1}"
+MINIO_CONTAINER="${AGENTTRACER_MINIO_CONTAINER:-${COMPOSE_PROJECT}-minio-1}"
+PG_USER="${AGENTTRACER_PG_USER:-agenttracer}"
+PG_DB="${AGENTTRACER_PG_DB:-agenttracer}"
+S3_BUCKET="${AGENTTRACER_S3_BUCKET:-agenttracer}"
+S3_ACCESS="${AGENTTRACER_S3_ACCESS_KEY:-minioadmin}"
+S3_SECRET="${AGENTTRACER_S3_SECRET_KEY:-minioadmin}"
+STAMP="$(date -u +%Y%m%d-%H%M%S)"
+DAY="$(date -u +%Y%m%d)"
+DOW="$(date -u +%u)" # 1=Mon … 7=Sun
+
+mkdir -p "$ROOT/postgres/daily" "$ROOT/postgres/weekly" "$ROOT/silo" "$ROOT/logs"
+LOG="$ROOT/logs/backup-$STAMP.log"
+exec > >(tee -a "$LOG") 2>&1
+
+echo "[backup] start $STAMP project=$COMPOSE_PROJECT pg=$PG_CONTAINER"
+
+if ! docker inspect "$PG_CONTAINER" >/dev/null 2>&1; then
+  echo "[backup] ERROR: postgres container $PG_CONTAINER not found" >&2
+  exit 1
+fi
+
+DUMP="$ROOT/postgres/daily/agenttracer-$STAMP.sql.gz"
+docker exec "$PG_CONTAINER" pg_dump -U "$PG_USER" -d "$PG_DB" --no-owner --no-acl | gzip -c > "$DUMP.tmp"
+mv "$DUMP.tmp" "$DUMP"
+echo "[backup] pg_dump -> $DUMP ($(wc -c < "$DUMP") bytes)"
+
+if [[ "$DOW" == "7" ]]; then
+  WEEKLY="$ROOT/postgres/weekly/agenttracer-$DAY.sql.gz"
+  cp -f "$DUMP" "$WEEKLY"
+  echo "[backup] weekly copy -> $WEEKLY"
+fi
+
+# Retention
+ls -1t "$ROOT/postgres/daily"/agenttracer-*.sql.gz 2>/dev/null | tail -n +8 | while read -r f; do
+  echo "[backup] prune daily $f"; rm -f "$f"
+done
+ls -1t "$ROOT/postgres/weekly"/agenttracer-*.sql.gz 2>/dev/null | tail -n +5 | while read -r f; do
+  echo "[backup] prune weekly $f"; rm -f "$f"
+done
+
+# Silo / MinIO mirror via ephemeral mc client on the docker network
+SILO_DEST="$ROOT/silo/$STAMP"
+mkdir -p "$SILO_DEST"
+NET="$(docker inspect "$MINIO_CONTAINER" -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}' | awk '{print $1}')"
+MINIO_IP="$(docker inspect "$MINIO_CONTAINER" -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' | awk '{print $1}')"
+if [[ -n "$NET" && -n "$MINIO_IP" ]]; then
+  echo "[backup] mirroring s3://$S3_BUCKET from $MINIO_IP via network $NET"
+  docker run --rm --network "$NET" \
+    -e MC_HOST_local="http://${S3_ACCESS}:${S3_SECRET}@${MINIO_IP}:9000" \
+    -v "$SILO_DEST:/out" \
+    minio/mc:RELEASE.2025-08-13T08-35-41Z \
+    mirror --quiet "local/${S3_BUCKET}" /out || {
+      echo "[backup] WARN: silo mirror failed (bucket empty or mc issue); continuing"
+    }
+  # Retention: keep last 7 silo stamp dirs
+  ls -1dt "$ROOT/silo"/*/ 2>/dev/null | tail -n +8 | while read -r d; do
+    echo "[backup] prune silo $d"; rm -rf "$d"
+  done
+else
+  echo "[backup] WARN: could not resolve minio network/ip; skipped silo mirror"
+fi
+
+echo "[backup] done $STAMP"
+echo "$DUMP"

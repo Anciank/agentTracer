@@ -1,0 +1,3 @@
+# Install ONLY after TechLeadBro approval (prod change).
+# Nightly 03:15 UTC — read-only dump + silo mirror into ~/backups
+15 3 * * * /home/ubuntu/src/agentTracer/deploy/backup.sh >> /home/ubuntu/backups/logs/cron.log 2>&1

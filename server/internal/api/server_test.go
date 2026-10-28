@@ -5,11 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/Anciank/agentTracer/server/migrations"
 	"io"
 	"net/http/httptest"
 	"os"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +19,7 @@ import (
 
 	"github.com/Anciank/agentTracer/server/internal/config"
 	"github.com/Anciank/agentTracer/server/internal/store"
+	"github.com/Anciank/agentTracer/server/migrations"
 )
 
 func testServer(t *testing.T) (*Server, string) {
@@ -35,25 +34,8 @@ func testServer(t *testing.T) (*Server, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	entries, err := migrations.FS.ReadDir(".")
-	if err != nil {
+	if err := migrations.Up(ctx, pool); err != nil {
 		t.Fatal(err)
-	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sql") {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		sqlBytes, err := migrations.FS.ReadFile(name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := store.Migrate(ctx, pool, string(sqlBytes)); err != nil {
-			t.Fatal(err)
-		}
 	}
 	// isolate: wipe tables
 	_, _ = pool.Exec(ctx, `TRUNCATE attachments, feedback, runs, sessions CASCADE`)

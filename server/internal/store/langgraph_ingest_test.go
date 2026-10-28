@@ -3,8 +3,6 @@ package store
 import (
 	"context"
 	"os"
-	"sort"
-	"strings"
 	"testing"
 	"time"
 
@@ -25,25 +23,8 @@ func testPool(t *testing.T) *pgxpool.Pool {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	entries, err := migrations.FS.ReadDir(".")
-	if err != nil {
+	if err := migrations.Up(ctx, pool); err != nil {
 		t.Fatal(err)
-	}
-	var names []string
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sql") {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		b, err := migrations.FS.ReadFile(name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := Migrate(ctx, pool, string(b)); err != nil {
-			t.Fatal(err)
-		}
 	}
 	_, _ = pool.Exec(ctx, `TRUNCATE attachments, feedback, runs, sessions CASCADE`)
 	return pool

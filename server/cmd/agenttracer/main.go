@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"sort"
 	"syscall"
 	"time"
 
@@ -40,25 +39,8 @@ func main() {
 		time.Sleep(time.Second)
 	}
 
-	entries, err := migrations.FS.ReadDir(".")
-	if err != nil {
-		log.Fatalf("migration list: %v", err)
-	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if !e.IsDir() && len(e.Name()) > 4 && e.Name()[len(e.Name())-4:] == ".sql" {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		sqlBytes, err := migrations.FS.ReadFile(name)
-		if err != nil {
-			log.Fatalf("migration %s: %v", name, err)
-		}
-		if err := store.Migrate(ctx, pool, string(sqlBytes)); err != nil {
-			log.Fatalf("migrate %s: %v", name, err)
-		}
+	if err := migrations.Up(ctx, pool); err != nil {
+		log.Fatalf("migrate: %v", err)
 	}
 
 	blob := store.NewS3Blob(cfg)
