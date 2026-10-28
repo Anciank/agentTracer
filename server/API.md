@@ -286,10 +286,10 @@ event: heartbeat
 data: {}
 ```
 
-- `trace`: new root / new list row (prepend). Emitted after commit.
-- `run_upsert`: optional; for an already-open waterfall. UI may ignore.
+- `trace`: TraceSummary for list prepend/refresh. Emitted after commit when a root is created or a root/trace rollup changes.
+- `run_upsert`: **required**. Emitted for **every** run on create (`POST /runs`, batch, or multipart post) and on **every** `PATCH` (including end_time, status, and token updates). Payload is `{ "trace_id", "row": SpanSummary }` with the **post-merge** run so an open waterfall updates live. Relative fields (`depth`, `offset_ms`) are filled when cheap from current siblings; they may be briefly stale until the trace ends.
 - `heartbeat`: every 15s; no `id` required.
-- Target: new root visible <2s after multipart flush.
+- Target: new root visible <2s after multipart flush; `run_upsert` ASAP after each persist.
 
 ---
 
@@ -344,6 +344,17 @@ Unknown trace/run → `404`. Invalid cursor / params → `422`.
 
 ---
 
+
+### LangGraph denorm (M3.5 prep)
+
+At ingest (create and PATCH), runs denormalize:
+- `langgraph_node` / `langgraph_step` from `extra.metadata.langgraph_*`
+- Fallback: if `langgraph_node` is missing and the run is a **direct child of a LangGraph root**, use the run `name`.
+- LangGraph root heuristic: root `name == "LangGraph"`, or root `extra.metadata` has a `langgraph_*` / checkpoint key, or `serialized.id`/`name` contains `"langgraph"`.
+- `path_fingerprint` column exists on runs (nullable) but is **not** populated yet.
+
 ## Changes
 
-_(none yet — shapes frozen 2026-10-28)_
+_(2026-10-28)_ LangGraph denorm columns (`langgraph_node`/`langgraph_step`/`path_fingerprint`) + ingest extraction/fallback; index `(session_id, langgraph_node, start_time)`.
+_(2026-10-28)_ SSE `run_upsert` is mandatory on every run create/PATCH (post-merge SpanSummary); relative depth/offset_ms may be briefly stale.
+

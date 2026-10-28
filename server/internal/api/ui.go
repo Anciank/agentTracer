@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Anciank/agentTracer/server/internal/live"
 	"github.com/Anciank/agentTracer/server/internal/store"
 	"github.com/Anciank/agentTracer/server/internal/traces"
 )
@@ -444,80 +446,175 @@ func (s *Server) apiUITracesStream(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 422, map[string]any{"detail": err.Error()})
 		return
 	}
-	opts.Limit = 20
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(200)
 	flusher.Flush()
 
-	seen := map[string]bool{}
+	seenTrace := map[string]bool{}
 	if last := r.Header.Get("Last-Event-ID"); last != "" {
 		if st, tid, err := store.DecodeCursor(last); err == nil {
 			opts.CursorStart = &st
 			opts.CursorTraceID = tid
 		}
 	}
+
+	hub := s.store.Hub()
+	var events <-chan live.RunEvent
+	var unsub func()
+	if hub != nil {
+		events, unsub = hub.Subscribe(256)
+		defer unsub()
+	} else {
+		ch := make(chan live.RunEvent)
+		events = ch
+	}
+
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
-	poll := time.NewTicker(1500 * time.Millisecond)
-	defer poll.Stop()
 
-	emitHeartbeat := func() {
-		_, _ = fmt.Fprintf(w, "event: heartbeat\ndata: {}\n\n")
+	writeEvent := func(id, name string, payload any) {
+		b, _ := json.Marshal(payload)
+		if id != "" {
+			_, _ = fmt.Fprintf(w, "id: %s\nevent: %s\ndata: %s\n\n", id, name, b)
+		} else {
+			_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, b)
+		}
 		flusher.Flush()
 	}
-	scan := func() {
-		list, _, err := s.store.UIListTraces(r.Context(), opts)
-		if err != nil {
+
+	matchFilters := func(project string, run map[string]any) bool {
+		if opts.Project != "" && project != "" && project != opts.Project {
+			return false
+		}
+		if opts.RunType != "" && asStr(run["run_type"]) != opts.RunType {
+			// still emit; filter is "trace contains type" — skip only if we know mismatch for this run alone is wrong
+			// Keep emitting; client filters waterfall.
+		}
+		if opts.Model != "" && asStr(run["model"]) != "" && asStr(run["model"]) != opts.Model {
+			// same — emit for live waterfall
+		}
+		return true
+	}
+
+	emitRunUpsert := func(ev live.RunEvent) {
+		if !matchFilters(ev.Project, ev.Run) {
 			return
 		}
-		// emit newest first that we haven't seen
+		row := s.spanSummaryForLive(r.Context(), ev)
+		cur := ""
+		if st := parseTimeAny(ev.Run["start_time"]); st != nil {
+			cur = store.EncodeCursor(*st, ev.TraceID)
+		}
+		writeEvent(cur, "run_upsert", map[string]any{"trace_id": ev.TraceID, "row": row})
+
+		// Also emit/refresh TraceSummary for list when root changes or first sight.
+		isRoot := ev.Run["parent_run_id"] == nil || asStr(ev.Run["parent_run_id"]) == ""
+		if isRoot || !seenTrace[ev.TraceID] {
+			runs, err := s.store.QueryRuns(r.Context(), store.QueryOpts{Trace: ev.TraceID, Unlimited: true})
+			if err == nil && len(runs) > 0 {
+				sum := buildUITraceSummaryFromRuns(ev.TraceID, ev.Project, runs)
+				if opts.Project == "" || asStr(sum["project"]) == opts.Project || opts.Project == ev.Project {
+					seenTrace[ev.TraceID] = true
+					writeEvent(cur, "trace", sum)
+				}
+			}
+		}
+	}
+
+	// Seed recent traces once
+	seedOpts := opts
+	seedOpts.Limit = 20
+	if list, _, err := s.store.UIListTraces(r.Context(), seedOpts); err == nil {
 		for i := len(list) - 1; i >= 0; i-- {
 			tr := list[i]
 			tid := asStr(tr["trace_id"])
-			if seen[tid] {
-				continue
-			}
-			seen[tid] = true
+			seenTrace[tid] = true
 			cur := ""
 			if st := asStr(tr["start"]); st != "" {
-				cur = store.EncodeCursor(*mustParse(st), tid)
+				if tp := mustParse(st); tp != nil {
+					cur = store.EncodeCursor(*tp, tid)
+				}
 			}
-			b, _ := json.Marshal(tr)
-			if cur != "" {
-				_, _ = fmt.Fprintf(w, "id: %s\nevent: trace\ndata: %s\n\n", cur, b)
-			} else {
-				_, _ = fmt.Fprintf(w, "event: trace\ndata: %s\n\n", b)
-			}
-			flusher.Flush()
-		}
-		// advance cursor to newest
-		if len(list) > 0 {
-			tr := list[0]
-			if st := asStr(tr["start"]); st != "" {
-				t := mustParse(st)
-				opts.CursorStart = t
-				opts.CursorTraceID = asStr(tr["trace_id"])
-				// for keyset "newer than", UIListTraces uses < for older pages;
-				// stream re-lists without cursor for freshness — clear cursor for poll
-				opts.CursorStart = nil
-				opts.CursorTraceID = ""
-			}
+			writeEvent(cur, "trace", tr)
 		}
 	}
-	scan()
+
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-ticker.C:
-			emitHeartbeat()
-		case <-poll.C:
-			scan()
+			writeEvent("", "heartbeat", map[string]any{})
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
+			emitRunUpsert(ev)
 		}
 	}
 }
+
+// spanSummaryForLive builds a SpanSummary for a hub event.
+// depth/offset_ms are filled from current sibling runs when cheap; may be stale
+// until the trace finishes if sibling fetch fails.
+func (s *Server) spanSummaryForLive(ctx context.Context, ev live.RunEvent) map[string]any {
+	run := ev.Run
+	runs := []map[string]any{run}
+	if sibs, err := s.store.QueryRuns(ctx, store.QueryOpts{Trace: ev.TraceID, Unlimited: true}); err == nil && len(sibs) > 0 {
+		runs = sibs
+	}
+	byID := map[string]map[string]any{}
+	var t0 *time.Time
+	for _, r := range runs {
+		byID[asStr(r["id"])] = r
+		if st := parseTimeAny(r["start_time"]); st != nil {
+			if t0 == nil || st.Before(*t0) {
+				t0 = st
+			}
+		}
+	}
+	start := parseTimeAny(run["start_time"])
+	end := parseTimeAny(run["end_time"])
+	var lat, self any
+	if start != nil && end != nil {
+		lat = int(end.Sub(*start).Milliseconds())
+	}
+	if st := traces.SelfTimeMs(run, runs); st != nil {
+		self = *st
+	}
+	offset := 0
+	if start != nil && t0 != nil {
+		offset = int(start.Sub(*t0).Milliseconds())
+	}
+	tags := run["tags"]
+	if tags == nil {
+		tags = []any{}
+	}
+	payloadHot := true
+	for _, k := range []string{"inputs", "outputs", "extra", "events", "serialized"} {
+		if isColdPointer(run[k]) {
+			payloadHot = false
+			break
+		}
+	}
+	return map[string]any{
+		"id": run["id"], "parent_run_id": run["parent_run_id"],
+		"name": run["name"], "run_type": orDef(asStr(run["run_type"]), "chain"),
+		"node": traces.RunNode(run), "status": traces.RunStatus(run),
+		"depth": traces.DepthOf(run, byID), "offset_ms": offset, "latency_ms": lat, "self_time_ms": self,
+		"start_time": run["start_time"], "end_time": run["end_time"],
+		"tokens": map[string]any{
+			"input": asIntAny(run["input_tokens"]), "output": asIntAny(run["output_tokens"]),
+			"total": asIntAny(run["total_tokens"]),
+		},
+		"model": run["model"], "tags": tags, "dotted_order": run["dotted_order"],
+		"has_error": asStr(run["error"]) != "", "payload_hot": payloadHot,
+		"attachment_count": 0,
+	}
+}
+
 
 func mustParse(s string) *time.Time {
 	t, err := time.Parse(time.RFC3339Nano, s)
