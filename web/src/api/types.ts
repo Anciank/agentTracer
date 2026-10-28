@@ -2,7 +2,7 @@
 
 export type Tokens = { input: number; output: number; total: number };
 
-export type TraceStatus = "success" | "error" | "running";
+export type TraceStatus = "success" | "error" | "running" | "stale";
 
 export type TraceSummary = {
   trace_id: string;
@@ -14,10 +14,16 @@ export type TraceSummary = {
   run_count: number;
   error_count: number;
   running_count: number;
+  /** Open runs past AGENTTRACER_STALE_AFTER (default 1h); read-time only. */
+  stale_count?: number;
   status: TraceStatus;
   tokens: Tokens;
   model: string | null;
   run_types: Record<string, number>;
+  /** First user/human message text, ≤120 UTF-8 bytes, or null. */
+  first_user_preview?: string | null;
+  /** Last AI/assistant message text, ≤120 UTF-8 bytes, or null. */
+  last_ai_preview?: string | null;
 };
 
 export type SpanSummary = {

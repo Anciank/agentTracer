@@ -24,7 +24,7 @@ export function filtersFromSearch(sp: URLSearchParams): UiFilters {
   const sort = sp.get("sort") as UiFilters["sort"];
   if (project) f.project = project;
   if (q) f.q = q;
-  if (status === "success" || status === "error" || status === "running") f.status = status;
+  if (status === "success" || status === "error" || status === "running" || status === "stale") f.status = status;
   if (sort === "start_desc" || sort === "duration_desc" || sort === "tokens_desc" || sort === "errors_desc") {
     f.sort = sort;
   }

@@ -37,7 +37,12 @@ function filterTraces(all: TraceSummary[], params: TraceListParams): TraceSummar
   if (params.status) list = list.filter((t) => t.status === params.status);
   if (params.q) {
     const q = params.q.toLowerCase();
-    list = list.filter((t) => t.name.toLowerCase().includes(q));
+    list = list.filter(
+      (t) =>
+        t.name.toLowerCase().includes(q) ||
+        (t.first_user_preview || "").toLowerCase().includes(q) ||
+        (t.last_ai_preview || "").toLowerCase().includes(q)
+    );
   }
   if (params.model) list = list.filter((t) => t.model === params.model);
   // tool filter is server-side in real API; mock keeps all (deep-link smoke)

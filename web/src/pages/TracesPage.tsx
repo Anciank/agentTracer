@@ -14,6 +14,7 @@ import {
 } from "../lib/filters";
 import { traceOpenPath } from "../lib/traceNav";
 import { fmtDurMs, fmtInt } from "../lib/format";
+import { statusTitle } from "../lib/status";
 import { ErrorState } from "../components/ErrorState";
 import { buildWaterfallRows, indexTree, isOrphanGroupId, visibleRows } from "../lib/tree";
 
@@ -235,6 +236,7 @@ export function TracesPage() {
           <option value="error">Errors</option>
           <option value="success">Success</option>
           <option value="running">Running</option>
+          <option value="stale">Stale</option>
         </select>
         <select
           value={filters.sort || "start_desc"}
@@ -315,6 +317,18 @@ export function TracesPage() {
               <div className="meta-row">
                 {summaryQ.data ? (
                   <>
+                    <span
+                      className={`badge ${
+                        summaryQ.data.summary.status === "error"
+                          ? "err"
+                          : summaryQ.data.summary.status === "stale"
+                            ? "stale"
+                            : ""
+                      }`}
+                      title={statusTitle(summaryQ.data.summary.status)}
+                    >
+                      {summaryQ.data.summary.status}
+                    </span>
                     <span>{fmtDurMs(summaryQ.data.span_ms)}</span>
                     <span>{fmtInt(summaryQ.data.rows.length)} spans</span>
                     <span>{fmtInt(summaryQ.data.summary.tokens.total)} tok</span>

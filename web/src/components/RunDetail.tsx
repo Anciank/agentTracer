@@ -130,7 +130,7 @@ export function RunDetail({ span, tabIndex = 0, onTab }: Props) {
     <div className="detail">
       <div className="detail-inner">
         <div>
-          <span className={`badge ${span.status === "error" ? "err" : ""}`}>{span.status}</span>
+          <span className={`badge ${span.status === "error" ? "err" : span.status === "stale" ? "stale" : ""}`} title={span.status === "stale" ? "No end time recorded" : undefined}>{span.status}</span>
           <span className="badge">{span.run_type}</span>
           {span.node && <span className="badge">{span.node}</span>}
         </div>

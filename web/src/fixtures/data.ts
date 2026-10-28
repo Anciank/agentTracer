@@ -141,6 +141,8 @@ export const TRACES: TraceSummary[] = [
     tokens: T(120, 90),
     model: "some-model-flash",
     run_types: { chain: 2, llm: 1, tool: 1 },
+    first_user_preview: "Remember that my favorite color is blue",
+    last_ai_preview: "Got it — I'll remember your favorite color is blue.",
   },
   {
     trace_id: TRACE_B,
@@ -156,6 +158,8 @@ export const TRACES: TraceSummary[] = [
     tokens: T(180, 56),
     model: "some-model-flash",
     run_types: { chain: 1, llm: 2, tool: 3 },
+    first_user_preview: "Translate this note to Chinese please",
+    last_ai_preview: null,
   },
   {
     trace_id: TRACE_C,
@@ -171,6 +175,8 @@ export const TRACES: TraceSummary[] = [
     tokens: T(900, 420),
     model: "gpt-4o-mini",
     run_types: { chain: 1, llm: 3, tool: 4 },
+    first_user_preview: "Search docs for reset password flow",
+    last_ai_preview: "Tool search_kb failed: timeout",
   },
   {
     trace_id: "00000000-0000-4000-8000-0000000000d1",
@@ -216,6 +222,26 @@ export const TRACES: TraceSummary[] = [
     tokens: T(6000, 1152),
     model: "claude-3-5-sonnet-20241022",
     run_types: { chain: 1, llm: 2, tool: 2 },
+    first_user_preview: "Cancel my subscription please",
+    last_ai_preview: null,
+  },
+  {
+    trace_id: "00000000-0000-4000-8000-0000000000d4",
+    name: "abandoned_checkout_help",
+    project: "support",
+    start: "2026-10-28T06:00:00.000Z",
+    end: null,
+    duration_ms: null,
+    run_count: 3,
+    error_count: 0,
+    running_count: 0,
+    stale_count: 1,
+    status: "stale",
+    tokens: T(220, 40),
+    model: "gpt-4o-mini",
+    run_types: { chain: 1, llm: 1, tool: 1 },
+    first_user_preview: "Why was I charged twice for order 4412?",
+    last_ai_preview: "Looking up order 4412…",
   },
 ];
 
@@ -224,26 +250,32 @@ export function makeManyTraces(n: number): TraceSummary[] {
   const out: TraceSummary[] = [...TRACES];
   for (let i = out.length; i < n; i++) {
     const err = i % 17 === 0;
+    const stale = !err && i % 23 === 0;
     out.push({
       trace_id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
       name: err
         ? `fail_path_with_long_name_${i}`
-        : i % 11 === 0
-          ? `bilingual_cn_${i}`
-          : i % 7 === 0
-            ? `running_flow_${i}`
-            : `run_${i}`,
+        : stale
+          ? `stale_flow_${i}`
+          : i % 11 === 0
+            ? `bilingual_cn_${i}`
+            : i % 7 === 0
+              ? `running_flow_${i}`
+              : `run_${i}`,
       project: i % 3 === 0 ? "demo-testing" : i % 3 === 1 ? "research" : "local-dev",
       start: new Date(Date.UTC(2026, 9, 27, 12, 0, 0) - i * 60_000).toISOString().replace(".000Z", ".000Z"),
-      end: i % 7 === 0 ? null : new Date(Date.UTC(2026, 9, 27, 12, 0, 0) - i * 60_000 + 5000).toISOString().replace(".000Z", ".000Z"),
-      duration_ms: i % 7 === 0 ? null : 1000 + (i % 50) * 100,
+      end: err || i % 7 === 0 || stale ? null : new Date(Date.UTC(2026, 9, 27, 12, 0, 0) - i * 60_000 + 5000).toISOString().replace(".000Z", ".000Z"),
+      duration_ms: err || i % 7 === 0 || stale ? null : 1000 + (i % 50) * 100,
       run_count: 2 + (i % 20),
       error_count: err ? 1 + (i % 3) : 0,
-      running_count: i % 7 === 0 ? 1 : 0,
-      status: err ? "error" : i % 7 === 0 ? "running" : "success",
+      running_count: !err && !stale && i % 7 === 0 ? 1 : 0,
+      stale_count: stale ? 1 : 0,
+      status: err ? "error" : stale ? "stale" : i % 7 === 0 ? "running" : "success",
       tokens: T(100 + i, 50 + (i % 40)),
       model: i % 5 === 0 ? "some-model-flash" : i % 2 ? "gpt-4o-mini" : "gpt-4o",
       run_types: { chain: 1, llm: 1 + (i % 3), tool: i % 4 },
+      first_user_preview: i % 4 === 0 ? `User question number ${i}` : i % 4 === 1 ? null : `Help with item ${i}`,
+      last_ai_preview: i % 5 === 0 ? null : `Reply about item ${i}`,
     });
   }
   return out;

@@ -164,7 +164,7 @@ a { color: var(--accent-ink); }
 .pane-head h2 { margin: 0; font-size: 13px; font-weight: 600; }
 .pane-head .meta { color: var(--muted); font-size: 11.5px; margin-top: 2px; font-variant-numeric: tabular-nums; }
 .list { flex: 1; overflow: auto; }
-/* Trace list rows — fixed 52px; must match TRACE_ROW_H in TraceList.tsx */
+/* Trace list rows — 52px base / 64px with preview; match TRACE_ROW_H(_PREVIEW) */
 .trow {
   display: grid;
   grid-template-columns: 16px 1fr;
@@ -204,6 +204,14 @@ a { color: var(--accent-ink); }
   box-shadow: 0 0 0 0 color-mix(in srgb, var(--warn) 55%, transparent);
   animation: status-pulse 1.6s ease-out infinite;
 }
+.trow .tstatus.stale { background: var(--muted); opacity: 0.7; }
+.trow.has-preview { height: 64px; }
+.trow .tdur-stale {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 550;
+  letter-spacing: 0.02em;
+}
 @keyframes status-pulse {
   0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--warn) 50%, transparent); }
   70% { box-shadow: 0 0 0 7px transparent; }
@@ -213,10 +221,11 @@ a { color: var(--accent-ink); }
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   justify-content: center;
   padding: 7px 0;
 }
+.trow.has-preview .tbody { padding: 6px 0; }
 .trow .tline1 {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -653,14 +662,27 @@ a { color: var(--accent-ink); }
 }
 .ov-sec { min-width: 0; }
 
-/* Reserved for CodeBro2 first-user / last-reply preview — keep TRACE_ROW_H=52.
-   When filled: put text in .tpreview inside .tbody; keep single-line ellipsis. */
+/* Chat preview: first user → last AI (single line, tooltip has full text). */
 .trow .tpreview {
-  display: none; /* empty until preview lands; do not raise row height yet */
   font-size: 11px;
+  line-height: 1.25;
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 100%;
+  min-width: 0;
+}
+/* Stale status pill / badge (detail + waterfall). */
+.badge.stale { background: var(--chip); color: var(--muted); }
+.pill.stale { background: var(--chip); color: var(--muted); }
+.bar.stale {
+  opacity: 0.55;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 3px,
+    color-mix(in srgb, var(--muted) 35%, transparent) 3px,
+    color-mix(in srgb, var(--muted) 35%, transparent) 6px
+  );
 }

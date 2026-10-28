@@ -73,7 +73,7 @@ export function Waterfall({ rows, spanMs, selectedId, folded, onSelect, onToggle
           const w = r.latency_ms == null ? 0 : Math.max(pct(r.latency_ms), 0.25);
           const left = pct(r.offset_ms);
           const color = TYPE_COLOR[r.run_type] || "var(--unknown)";
-          const barCls = ["bar", r.status === "error" ? "error" : "", r.status === "running" ? "running" : ""]
+          const barCls = ["bar", r.status === "error" ? "error" : "", r.status === "running" ? "running" : "", r.status === "stale" ? "stale" : ""]
             .filter(Boolean)
             .join(" ");
           // Flip token label inside/left of the bar when the right edge is crowded.

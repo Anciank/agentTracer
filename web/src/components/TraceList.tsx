@@ -11,10 +11,18 @@ import type {
 import { fmtDurMs, fmtInt, fmtRel } from "../lib/format";
 import type { UiFilters } from "../lib/filters";
 import { applyRunUpsert, mergePendingTraces } from "../lib/liveMerge";
+import {
+  formatChatPreview,
+  hasChatPreview,
+  statusDotClass,
+  statusTitle,
+} from "../lib/status";
 import { ErrorState } from "./ErrorState";
 
-/** Must match `.trow` height in styles.css — virtualizer uses this exactly. */
+/** Base row height (no preview). With chat preview, use TRACE_ROW_H_PREVIEW.
+ *  Must match `.trow` / `.trow.has-preview` in styles.css. */
 export const TRACE_ROW_H = 52;
+export const TRACE_ROW_H_PREVIEW = 64;
 
 type InfiniteTraces = { pages: TraceListResponse[]; pageParams: unknown[] };
 
@@ -161,11 +169,13 @@ export function TraceList({
                   status:
                     row.status === "error"
                       ? "error"
-                      : cur.status === "running" || row.status === "running"
-                        ? cur.status === "error"
-                          ? "error"
-                          : "running"
-                        : cur.status,
+                      : cur.status === "error"
+                        ? "error"
+                        : row.status === "running" || cur.status === "running"
+                          ? "running"
+                          : row.status === "stale" || cur.status === "stale"
+                            ? "stale"
+                            : cur.status,
                 };
               }
               return { ...page, traces: next };
@@ -209,7 +219,7 @@ export function TraceList({
   const virt = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => TRACE_ROW_H,
+    estimateSize: (i) => (hasChatPreview(rows[i] || {}) ? TRACE_ROW_H_PREVIEW : TRACE_ROW_H),
     overscan: 12,
   });
 
@@ -260,6 +270,13 @@ export function TraceList({
             const t = rows[vi.index];
             const running = t.status === "running";
             const errored = t.status === "error";
+            const stale = t.status === "stale";
+            const preview = hasChatPreview(t);
+            const previewText = preview ? formatChatPreview(t) : "";
+            const previewTip = [t.first_user_preview, t.last_ai_preview]
+              .filter((s): s is string => Boolean(s && s.trim()))
+              .join(" → ");
+            const rowH = preview ? TRACE_ROW_H_PREVIEW : TRACE_ROW_H;
             const meta: string[] = [];
             meta.push(fmtRel(t.start));
             if (!hideProject && t.project) meta.push(t.project);
@@ -272,21 +289,23 @@ export function TraceList({
                 aria-selected={t.trace_id === selectedId || t.trace_id === openTraceId}
                 className={`trow ${t.trace_id === selectedId || t.trace_id === openTraceId ? "active" : ""} ${
                   errored ? "has-error" : ""
-                } ${running ? "is-running" : ""}`}
+                } ${running ? "is-running" : ""} ${stale ? "is-stale" : ""} ${
+                  preview ? "has-preview" : ""
+                }`}
                 style={{
                   position: "absolute",
                   top: 0,
                   left: 0,
                   width: "100%",
-                  height: TRACE_ROW_H,
+                  height: rowH,
                   transform: `translateY(${vi.start}px)`,
                 }}
                 onClick={() => onOpen(t.trace_id)}
                 onDoubleClick={() => onOpen(t.trace_id)}
               >
                 <span
-                  className={`tstatus ${errored ? "err" : running ? "run" : "ok"}`}
-                  title={t.status}
+                  className={`tstatus ${statusDotClass(t.status)}`}
+                  title={statusTitle(t.status)}
                   aria-label={t.status}
                 />
                 <div className="tbody">
@@ -294,10 +313,17 @@ export function TraceList({
                     <div className="tname" title={t.name}>
                       {t.name}
                     </div>
-                    <div className="tdur" title={running ? "running" : undefined}>
+                    <div
+                      className="tdur"
+                      title={running ? "running" : stale ? statusTitle("stale") : undefined}
+                    >
                       {running ? (
                         <span className="tdur-run" aria-label="running">
                           …
+                        </span>
+                      ) : stale ? (
+                        <span className="tdur-stale" aria-label="stale">
+                          stale
                         </span>
                       ) : (
                         fmtDurMs(t.duration_ms)
@@ -327,8 +353,11 @@ export function TraceList({
                       </span>
                     ) : null}
                   </div>
-                  {/* Slot for CodeBro2: first user msg + last reply preview (keep 52px). */}
-                  <div className="tpreview" aria-hidden="true" />
+                  {preview ? (
+                    <div className="tpreview" title={previewTip}>
+                      {previewText}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             );

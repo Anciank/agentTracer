@@ -35,6 +35,12 @@ export function runFiltersSelftest(): void {
   const qs2 = filtersToSearch(cleared);
   assert(qs2.includes("status=error"), "clearing model must keep status=error");
   assert(!qs2.includes("model="), "model cleared");
+
+  // stale must survive URL round-trip
+  const staleQs = filtersToSearch({ status: "stale", project: "demo-project" });
+  assert(staleQs.includes("status=stale"), "status=stale in query");
+  const staleRound = filtersFromSearch(new URLSearchParams(staleQs.replace(/^\?/, "")));
+  assert(staleRound.status === "stale", "stale round-trip");
 }
 
 runFiltersSelftest();
