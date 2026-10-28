@@ -265,6 +265,77 @@ var mergedKeys = []string{
 	"parent_run_id", "trace_id", "reference_example_id", "session_id", "session_name",
 }
 
+// terminalPatchKeys are fields a late create must not clobber once a patch set them.
+var terminalPatchKeys = map[string]struct{}{
+	"end_time": {}, "outputs": {}, "error": {}, "status": {}, "events": {},
+}
+
+func keepExistingOnPost(key string, existing map[string]any, incoming any) bool {
+	if _, ok := terminalPatchKeys[key]; !ok {
+		return false
+	}
+	ev, ok := existing[key]
+	if !ok || ev == nil {
+		return false
+	}
+	if key == "status" {
+		es := asString(ev)
+		if es == "success" || es == "error" {
+			ins := asString(incoming)
+			return ins == "" || ins == "pending" || ins == "running"
+		}
+		return false
+	}
+	if key == "outputs" || key == "events" {
+		// Don't let an empty create payload erase a patch that already wrote data.
+		if isEmptyJSONValue(incoming) && !isEmptyJSONValue(ev) {
+			return true
+		}
+		return false
+	}
+	if key == "error" {
+		return asString(incoming) == "" && asString(ev) != ""
+	}
+	// end_time: keep existing non-null over any incoming (create should not move end_time)
+	return true
+}
+
+func isEmptyJSONValue(v any) bool {
+	if v == nil {
+		return true
+	}
+	switch t := v.(type) {
+	case map[string]any:
+		return len(t) == 0
+	case []any:
+		return len(t) == 0
+	case string:
+		return t == "" || t == "{}" || t == "[]"
+	default:
+		return false
+	}
+}
+
+func clonePayload(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in)+1)
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+// overlayPayload copies non-null fields from over onto base (patch wins).
+func overlayPayload(base, over map[string]any) map[string]any {
+	out := clonePayload(base)
+	for k, v := range over {
+		if v == nil {
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}
+
 func (s *Store) UpsertRun(ctx context.Context, payload map[string]any, op string) error {
 	runID := asUUID(payload["id"])
 	if runID == nil {
@@ -291,10 +362,15 @@ func (s *Store) UpsertRun(ctx context.Context, payload map[string]any, op string
 			merged[k] = v
 		}
 	}
+	// Merge payload over existing. Nulls never wipe (post OR patch): a create that
+	// arrives after (or alongside) a patch must not null end_time/outputs/error/status.
 	for _, k := range mergedKeys {
 		if v, ok := payload[k]; ok {
-			if op == "patch" && v == nil {
-				continue // null must not wipe
+			if v == nil {
+				continue
+			}
+			if op == "post" && existing != nil && keepExistingOnPost(k, existing, v) {
+				continue
 			}
 			merged[k] = v
 		}
@@ -384,7 +460,11 @@ func (s *Store) UpsertRun(ctx context.Context, payload map[string]any, op string
 			trace_id=COALESCE(EXCLUDED.trace_id, runs.trace_id),
 			start_time=COALESCE(EXCLUDED.start_time, runs.start_time),
 			end_time=COALESCE(EXCLUDED.end_time, runs.end_time),
-			status=EXCLUDED.status,
+			status=CASE
+				WHEN EXCLUDED.end_time IS NOT NULL THEN EXCLUDED.status
+				WHEN runs.end_time IS NOT NULL AND EXCLUDED.status IN ('', 'pending', 'running') THEN runs.status
+				ELSE EXCLUDED.status
+			END,
 			error=CASE WHEN EXCLUDED.error='' THEN runs.error ELSE EXCLUDED.error END,
 			inputs=COALESCE(EXCLUDED.inputs, runs.inputs),
 			outputs=COALESCE(EXCLUDED.outputs, runs.outputs),
@@ -766,10 +846,23 @@ func (s *Store) Stats(ctx context.Context) map[string]any {
 func (s *Store) PersistBatch(ctx context.Context, batch *ingest.Batch) map[string]any {
 	written := 0
 	var errors []string
-	for runID, payload := range batch.Creates {
-		p := payload
+	// Coalesce same-id post+patch into one upsert so part order cannot lose patch fields,
+	// and SSE/fingerprint see the merged row once.
+	seen := map[string]struct{}{}
+	for runID, create := range batch.Creates {
+		seen[runID] = struct{}{}
+		p := clonePayload(create)
 		if _, ok := p["id"]; !ok {
 			p["id"] = runID
+		}
+		if patch, ok := batch.Updates[runID]; ok {
+			p = overlayPayload(p, patch)
+			if err := s.UpsertRun(ctx, p, "post"); err != nil {
+				errors = append(errors, fmt.Sprintf("post+patch %s: %v", runID, err))
+			} else {
+				written++
+			}
+			continue
 		}
 		if err := s.UpsertRun(ctx, p, "post"); err != nil {
 			errors = append(errors, fmt.Sprintf("post %s: %v", runID, err))
@@ -778,7 +871,10 @@ func (s *Store) PersistBatch(ctx context.Context, batch *ingest.Batch) map[strin
 		}
 	}
 	for runID, payload := range batch.Updates {
-		p := payload
+		if _, ok := seen[runID]; ok {
+			continue
+		}
+		p := clonePayload(payload)
 		if _, ok := p["id"]; !ok {
 			p["id"] = runID
 		}

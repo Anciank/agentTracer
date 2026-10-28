@@ -8,7 +8,7 @@ services:
     mem_limit: 512m
   minio:
     container_name: at-m2-minio
-    image: docker.io/pgsty/silo:RELEASE.2026-10-26T00-00-00Z
+    image: docker.io/pgsty/silo:latest
     mem_limit: 256m
   app:
     container_name: at-m2-app

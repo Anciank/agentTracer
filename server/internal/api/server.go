@@ -106,7 +106,12 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 			"scale_up_nthreads_limit":   16,
 			"scale_down_nempty_trigger": 4,
 		},
-		"instance_flags": map[string]any{"local_only": true},
+		// langsmith SDK checks instance_flags.zstd_compression_enabled before
+		// enabling CompressedTraces; without it it warns and falls back.
+		"instance_flags": map[string]any{
+			"local_only":               true,
+			"zstd_compression_enabled": true,
+		},
 	})
 }
 
