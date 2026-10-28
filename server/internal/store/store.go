@@ -462,7 +462,7 @@ func (s *Store) GetRun(ctx context.Context, id string) (map[string]any, error) {
 			start_time, end_time, status, error, inputs, outputs, extra, events, tags,
 			serialized, inputs_preview, outputs_preview, reference_example_id,
 			input_tokens, output_tokens, total_tokens, model,
-			langgraph_node, langgraph_step
+			langgraph_node, langgraph_step, path_fingerprint
 		FROM runs WHERE id=$1`, uid)
 	return scanRun(row)
 }
@@ -483,11 +483,12 @@ func scanRun(row scannable) (map[string]any, error) {
 		inTok, outTok, totTok                 int
 		lgNode                                *string
 		lgStep                                *int
+		pathFP                                *string
 	)
 	if err := row.Scan(&id, &name, &runType, &sessionID, &parentID, &dotted, &traceID,
 		&start, &end, &status, &errStr, &inputs, &outputs, &extra, &events, &tags,
 		&serialized, &inPrev, &outPrev, &refID, &inTok, &outTok, &totTok, &model,
-		&lgNode, &lgStep); err != nil {
+		&lgNode, &lgStep, &pathFP); err != nil {
 		return nil, err
 	}
 	out := map[string]any{
@@ -502,6 +503,11 @@ func scanRun(row scannable) (map[string]any, error) {
 	}
 	if lgStep != nil {
 		out["langgraph_step"] = *lgStep
+	}
+	if pathFP != nil && *pathFP != "" {
+		out["path_fingerprint"] = *pathFP
+	} else {
+		out["path_fingerprint"] = nil
 	}
 	if sessionID != nil {
 		out["session_id"] = sessionID.String()
@@ -616,7 +622,7 @@ func (s *Store) QueryRuns(ctx context.Context, opts QueryOpts) ([]map[string]any
 		start_time, end_time, status, error, inputs, outputs, extra, events, tags,
 		serialized, inputs_preview, outputs_preview, reference_example_id,
 		input_tokens, output_tokens, total_tokens, model,
-		langgraph_node, langgraph_step
+		langgraph_node, langgraph_step, path_fingerprint
 		FROM runs WHERE %s ORDER BY start_time DESC NULLS LAST LIMIT %d OFFSET %d`,
 		strings.Join(where, " AND "), limit, offset)
 	rows, err := s.pool.Query(ctx, q, args...)

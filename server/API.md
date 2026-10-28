@@ -190,6 +190,7 @@ Full run for the detail pane. Hydrates cold S3 payloads server-side.
   "model": "…",
   "tags": [],
   "dotted_order": "…",
+  "path_fingerprint": "supervisor>tools×3>respond",
   "inputs": {},
   "outputs": {},
   "extra": {},
@@ -208,6 +209,7 @@ Full run for the detail pane. Hydrates cold S3 payloads server-side.
   "truncated": false
 }
 ```
+- `path_fingerprint`: collapsed path identity on **roots** when the trace has ended (e.g. `supervisor>tools×3>respond`); `null` on unfinished roots and non-root runs.
 - `inputs` / `outputs` / `extra` / `events` / `serialized` / `error`: each may be a real value **or** a `TruncatedField` object. `error` is normally a string or `null`.
 - `cold`: `true` if any field was hydrated from S3 for this response.
 - `truncated`: `true` if any field was replaced with `TruncatedField`.
@@ -390,7 +392,7 @@ At ingest (create and PATCH), runs denormalize:
 - `langgraph_node` / `langgraph_step` from `extra.metadata.langgraph_*`
 - Fallback: if `langgraph_node` is missing and the run is a **direct child of a LangGraph root**, use the run `name`.
 - LangGraph root heuristic: root `name == "LangGraph"`, or root `extra.metadata` has a `langgraph_*` / checkpoint key, or `serialized.id`/`name` contains `"langgraph"`.
-- `path_fingerprint` column exists on runs (nullable) but is **not** populated yet.
+- `path_fingerprint` is written on finished roots (and refreshed on late child upserts in finished traces).
 
 ## Changes
 

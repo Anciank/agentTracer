@@ -62,14 +62,25 @@ func TestUIGraphPathsAndFingerprint(t *testing.T) {
 	c := mkTrace([]string{"supervisor", "tools", "respond"}, 1) // tools fails
 	_, _, _ = a, b, c
 
-	// Fingerprint on root A (column not yet in GetRun scan — query directly)
-	var fp string
-	if err := pool.QueryRow(ctx, `SELECT COALESCE(path_fingerprint,'') FROM runs WHERE id=$1`, uuid.MustParse(a)).Scan(&fp); err != nil {
+	wantFP := "supervisor>tools×3>respond"
+	rootA, err := st.GetRun(ctx, a)
+	if err != nil {
 		t.Fatal(err)
 	}
-	wantFP := "supervisor>tools×3>respond"
-	if fp != wantFP {
-		t.Fatalf("fingerprint=%q want %q", fp, wantFP)
+	if asString(rootA["path_fingerprint"]) != wantFP {
+		t.Fatalf("GetRun path_fingerprint=%v want %q", rootA["path_fingerprint"], wantFP)
+	}
+	// Non-root / unfinished: null
+	var childID string
+	if err := pool.QueryRow(ctx, `SELECT id::text FROM runs WHERE trace_id=$1 AND parent_run_id IS NOT NULL LIMIT 1`, uuid.MustParse(a)).Scan(&childID); err != nil {
+		t.Fatal(err)
+	}
+	child, err := st.GetRun(ctx, childID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child["path_fingerprint"] != nil {
+		t.Fatalf("child path_fingerprint should be nil, got %v", child["path_fingerprint"])
 	}
 
 	from := now.Add(-1 * time.Hour)
@@ -172,11 +183,12 @@ func TestUIGraphPathsAndFingerprint(t *testing.T) {
 	}, "post"); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT COALESCE(path_fingerprint,'') FROM runs WHERE id=$1`, uuid.MustParse(a)).Scan(&fp); err != nil {
+	rootA, err = st.GetRun(ctx, a)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if fp != "supervisor>tools×3>respond>audit" {
-		t.Fatalf("late child refresh fp=%q", fp)
+	if asString(rootA["path_fingerprint"]) != "supervisor>tools×3>respond>audit" {
+		t.Fatalf("late child refresh fp=%v", rootA["path_fingerprint"])
 	}
 	_ = graph.OtherKey
 }
