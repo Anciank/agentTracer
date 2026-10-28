@@ -37,25 +37,39 @@ type PathsOpts struct {
 // (adopt-on-arrival for unfinished roots is out of scope; we only write when
 // the root already has end_time, or this upsert just set it).
 func (s *Store) RefreshPathFingerprint(ctx context.Context, traceID uuid.UUID) error {
-	var rootID uuid.UUID
-	var rootEnd *time.Time
+	var rootID, sessionID uuid.UUID
+	var rootEnd, rootStart *time.Time
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, end_time FROM runs
+		SELECT id, session_id, end_time, start_time FROM runs
 		WHERE trace_id=$1 AND parent_run_id IS NULL
 		ORDER BY start_time ASC NULLS LAST
-		LIMIT 1`, traceID).Scan(&rootID, &rootEnd)
+		LIMIT 1`, traceID).Scan(&rootID, &sessionID, &rootEnd, &rootStart)
 	if err != nil {
 		return nil // no root yet
 	}
 	if rootEnd == nil {
 		return nil
 	}
-	fp, err := s.computeFingerprint(ctx, traceID)
+	visits, err := s.loadTraceVisits(ctx, traceID)
 	if err != nil {
 		return err
 	}
-	_, err = s.pool.Exec(ctx, `UPDATE runs SET path_fingerprint=$1, updated_at=now() WHERE id=$2`, fp, rootID)
-	return err
+	keys := make([]string, 0, len(visits))
+	for _, v := range visits {
+		keys = append(keys, v.key)
+	}
+	fp := graph.FingerprintFromKeys(keys)
+	if len(keys) == 0 {
+		fp = graph.FingerprintFromKeys([]string{graph.RootOnlyKey()})
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE runs SET path_fingerprint=$1, updated_at=now() WHERE id=$2`, fp, rootID); err != nil {
+		return err
+	}
+	start := time.Now().UTC()
+	if rootStart != nil {
+		start = *rootStart
+	}
+	return s.upsertTraceGraphCache(ctx, traceID, sessionID, start, visits)
 }
 
 func (s *Store) computeFingerprint(ctx context.Context, traceID uuid.UUID) (string, error) {
@@ -71,6 +85,127 @@ func (s *Store) computeFingerprint(ctx context.Context, traceID uuid.UUID) (stri
 		return graph.FingerprintFromKeys([]string{graph.RootOnlyKey()}), nil
 	}
 	return graph.FingerprintFromKeys(keys), nil
+}
+
+func (s *Store) upsertTraceGraphCache(ctx context.Context, traceID, sessionID uuid.UUID, rootStart time.Time, visits []visitKey) error {
+	n := len(visits)
+	keys := make([]string, n)
+	fromLG := make([]bool, n)
+	errs := make([]bool, n)
+	lats := make([]float64, n)
+	ins := make([]int32, n)
+	outs := make([]int32, n)
+	tots := make([]int32, n)
+	for i, v := range visits {
+		keys[i] = v.key
+		fromLG[i] = v.fromLG
+		errs[i] = v.errored
+		lats[i] = v.latMs
+		ins[i] = int32(v.in)
+		outs[i] = int32(v.out)
+		tots[i] = int32(v.tot)
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO trace_graph_cache (
+			trace_id, session_id, root_start,
+			node_keys, node_from_lg, node_errors, node_lat_ms, node_in, node_out, node_tot, updated_at
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
+		ON CONFLICT (trace_id) DO UPDATE SET
+			session_id=EXCLUDED.session_id,
+			root_start=EXCLUDED.root_start,
+			node_keys=EXCLUDED.node_keys,
+			node_from_lg=EXCLUDED.node_from_lg,
+			node_errors=EXCLUDED.node_errors,
+			node_lat_ms=EXCLUDED.node_lat_ms,
+			node_in=EXCLUDED.node_in,
+			node_out=EXCLUDED.node_out,
+			node_tot=EXCLUDED.node_tot,
+			updated_at=now()`,
+		traceID, sessionID, rootStart, keys, fromLG, errs, lats, ins, outs, tots)
+	return err
+}
+
+// BackfillGraphCache recomputes cache rows for finished roots missing a cache entry.
+// limit<=0 means no limit. Returns number of traces written.
+func (s *Store) BackfillGraphCache(ctx context.Context, limit int) (int, error) {
+	q := `
+		SELECT r.trace_id FROM runs r
+		LEFT JOIN trace_graph_cache c ON c.trace_id = r.trace_id
+		WHERE r.parent_run_id IS NULL AND r.end_time IS NOT NULL AND r.trace_id IS NOT NULL
+			AND c.trace_id IS NULL
+		ORDER BY r.start_time DESC NULLS LAST`
+	if limit > 0 {
+		q += fmt.Sprintf(" LIMIT %d", limit)
+	}
+	rows, err := s.pool.Query(ctx, q)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	n := 0
+	for _, id := range ids {
+		if err := s.RefreshPathFingerprint(ctx, id); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
+func (s *Store) loadCachedVisitsInWindow(ctx context.Context, sessionID uuid.UUID, from, to time.Time) (map[uuid.UUID][]visitKey, int, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT trace_id, node_keys, node_from_lg, node_errors, node_lat_ms, node_in, node_out, node_tot
+		FROM trace_graph_cache
+		WHERE session_id=$1 AND root_start >= $2 AND root_start < $3`, sessionID, from, to)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := map[uuid.UUID][]visitKey{}
+	for rows.Next() {
+		var tid uuid.UUID
+		var keys []string
+		var fromLG, errs []bool
+		var lats []float64
+		var ins, outs, tots []int32
+		if err := rows.Scan(&tid, &keys, &fromLG, &errs, &lats, &ins, &outs, &tots); err != nil {
+			return nil, 0, err
+		}
+		n := len(keys)
+		visits := make([]visitKey, n)
+		for i := 0; i < n; i++ {
+			v := visitKey{key: keys[i]}
+			if i < len(fromLG) {
+				v.fromLG = fromLG[i]
+			}
+			if i < len(errs) {
+				v.errored = errs[i]
+			}
+			if i < len(lats) {
+				v.latMs = lats[i]
+			}
+			if i < len(ins) {
+				v.in = int(ins[i])
+			}
+			if i < len(outs) {
+				v.out = int(outs[i])
+			}
+			if i < len(tots) {
+				v.tot = int(tots[i])
+			}
+			visits[i] = v
+		}
+		out[tid] = visits
+	}
+	return out, len(out), nil
 }
 
 type visitKey struct {
@@ -288,10 +423,26 @@ func (s *Store) UIGraph(ctx context.Context, opts GraphOpts) (map[string]any, er
 	edgesAcc := map[string]*graph.EdgeAccum{}
 	rootOnly := 0
 
-	// Batch-load visits for all window traces (avoids N+1; keeps 7d/~5k under 1s).
-	byTrace, err := s.loadVisitsForTraces(ctx, rootTraceIDs)
+	// Prefer per-trace visit cache (written when the root ends). Fall back to
+	// live runs scan for any roots not yet cached (e.g. mid-backfill).
+	byTrace, cachedN, err := s.loadCachedVisitsInWindow(ctx, sessionID, from, to)
 	if err != nil {
 		return nil, err
+	}
+	if cachedN < len(rootTraceIDs) {
+		missing := make([]uuid.UUID, 0, len(rootTraceIDs)-cachedN)
+		for _, tid := range rootTraceIDs {
+			if _, ok := byTrace[tid]; !ok {
+				missing = append(missing, tid)
+			}
+		}
+		live, err := s.loadVisitsForTraces(ctx, missing)
+		if err != nil {
+			return nil, err
+		}
+		for tid, visits := range live {
+			byTrace[tid] = visits
+		}
 	}
 	for _, tid := range rootTraceIDs {
 		visits := byTrace[tid]

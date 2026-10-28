@@ -70,6 +70,14 @@ func TestUIGraphPathsAndFingerprint(t *testing.T) {
 	if asString(rootA["path_fingerprint"]) != wantFP {
 		t.Fatalf("GetRun path_fingerprint=%v want %q", rootA["path_fingerprint"], wantFP)
 	}
+	// Ending the root must also write trace_graph_cache.
+	var cacheKeys []string
+	if err := pool.QueryRow(ctx, `SELECT node_keys FROM trace_graph_cache WHERE trace_id=$1`, uuid.MustParse(a)).Scan(&cacheKeys); err != nil {
+		t.Fatalf("trace_graph_cache missing: %v", err)
+	}
+	if len(cacheKeys) < 2 || cacheKeys[0] != "supervisor" {
+		t.Fatalf("cache keys=%v", cacheKeys)
+	}
 	// Non-root / unfinished: null
 	var childID string
 	if err := pool.QueryRow(ctx, `SELECT id::text FROM runs WHERE trace_id=$1 AND parent_run_id IS NOT NULL LIMIT 1`, uuid.MustParse(a)).Scan(&childID); err != nil {
@@ -189,6 +197,19 @@ func TestUIGraphPathsAndFingerprint(t *testing.T) {
 	}
 	if asString(rootA["path_fingerprint"]) != "supervisor>tools×3>respond>audit" {
 		t.Fatalf("late child refresh fp=%v", rootA["path_fingerprint"])
+	}
+	if err := pool.QueryRow(ctx, `SELECT node_keys FROM trace_graph_cache WHERE trace_id=$1`, uuid.MustParse(a)).Scan(&cacheKeys); err != nil {
+		t.Fatalf("cache after late child: %v", err)
+	}
+	if cacheKeys[len(cacheKeys)-1] != "audit" {
+		t.Fatalf("cache not refreshed with audit: %v", cacheKeys)
+	}
+	n, err := st.BackfillGraphCache(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("backfill should be noop when complete, got %d", n)
 	}
 	_ = graph.OtherKey
 }

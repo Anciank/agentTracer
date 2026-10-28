@@ -72,6 +72,13 @@ func main() {
 	}
 
 	st := store.New(pool, blob)
+	if os.Getenv("AGENTTRACER_BACKFILL_GRAPH_CACHE") == "1" {
+		n, err := st.BackfillGraphCache(ctx, 0)
+		if err != nil {
+			log.Fatalf("graph cache backfill: %v", err)
+		}
+		log.Printf("graph cache backfill wrote %d traces", n)
+	}
 	srv := api.New(cfg, st)
 	handler := api.LogRequests(srv.Handler())
 
