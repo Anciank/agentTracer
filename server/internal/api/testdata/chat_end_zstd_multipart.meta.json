@@ -1,0 +1,6 @@
+{
+  "content_type": "multipart/form-data; boundary=3bedc76f87664d3ba86a1dc81ad20aea",
+  "content_encoding": "zstd",
+  "stuck_chat_id": "01a1823e-a87b-7681-aa6f-16f31923034b",
+  "note": "scrubbed captured bilingual_cn chat end patch; CJK outputs truncate preview mid-UTF-8"
+}

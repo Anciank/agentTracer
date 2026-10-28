@@ -1,0 +1,26 @@
+--chatendboundary
+Content-Disposition: form-data; name="patch.01a1823e-a87b-7681-aa6f-16f31923034b"
+Content-Type: application/json
+
+{"id":"01a1823e-a87b-7681-aa6f-16f31923034b","name":"chat","run_type":"chain","trace_id":"01a1823e-a87a-7982-a543-44127e6e96a6","parent_run_id":"01a1823e-a87a-7982-a543-44127e6e96a6","dotted_order":"20261028T112146874072Z01a1823e-a87a-7982-a543-44127e6e96a6.20261028T112146875861Z01a1823e-a87b-7681-aa6f-16f31923034b","tags":["chat_only","turn1","demo-testing","graph:step:2","bilingual_cn","demo","run2"],"session_id":null,"session_name":"demo-testing","start_time":"2026-10-28T11:21:46.875861+00:00","end_time":"2026-10-28T11:21:49.122791+00:00"}
+--chatendboundary
+Content-Disposition: form-data; name="patch.01a1823e-a87b-7681-aa6f-16f31923034b.inputs"
+Content-Type: application/json
+
+{"messages":[{"content":"You are a demo assistant.\n\nRespond concisely and helpfully to the user's messages. You do not have access to web search, file tools, calendars, or any external systems — answer purely from your own knowledge. Use markdown when it helps readability.\n\nIf the user asks you to perform an action that requires an external tool, explain that you can only chat in this mode and suggest they sign in for full functionality.","additional_kwargs":{},"response_metadata":{},"type":"system","id":"a568089f-7566-4c3a-9620-e4cf28f26c13"},{"content":"用三句话介绍一下什么是 LangGraph，面向后端工程师。","additional_kwargs":{},"response_metadata":{},"type":"human","id":"f9a64742-88c8-4705-b332-4af1d42643f7"}]}
+--chatendboundary
+Content-Disposition: form-data; name="patch.01a1823e-a87b-7681-aa6f-16f31923034b.outputs"
+Content-Type: application/json
+
+{"messages":[{"content":"LangGraph 是一个由 LangChain 团队开发的开源框架，专为构建状态化、多智能体或复杂逻辑的 LLM 应用而设计。它通过有向图（DAG）模型将任务分解为节点和边，允许你显式控制执行流程、管理中间状态并实现循环迭代，从而突破传统链式调用的线性限制。对于后端工程师而言，其核心价值在于提供了类似工作流引擎的确定性控制能力，便于处理需要持久化、人工介入或复杂分支判断的生产级 AI 场景。","additional_kwargs":{"refusal":null},"response_metadata":{"token_usage":{"completion_tokens":113,"prompt_tokens":178,"total_tokens":291,"completion_tokens_details":null,"prompt_tokens_details":null},"model_provider":"openai","model_name":"demo-model-flash","system_fingerprint":null,"id":"cfe2d8ac75ac4dfaadbaf6f44f841062","finish_reason":"stop","logprobs":null},"type":"ai","id":"lc_run--01a1823e-a87c-7e52-b0fc-36da46850e55-0","tool_calls":[],"invalid_tool_calls":[],"usage_metadata":{"input_tokens":178,"output_tokens":113,"total_tokens":291,"input_token_details":{},"output_token_details":{}}}]}
+--chatendboundary
+Content-Disposition: form-data; name="patch.01a1823e-a87b-7681-aa6f-16f31923034b.events"
+Content-Type: application/json
+
+[{"name":"start","time":"2026-10-28T11:21:46.875861+00:00"},{"name":"end","time":"2026-10-28T11:21:49.122791+00:00"}]
+--chatendboundary
+Content-Disposition: form-data; name="patch.01a1823e-a87b-7681-aa6f-16f31923034b.extra"
+Content-Type: application/json
+
+{"metadata":{"case":"bilingual_cn","run":2,"turn":1,"agent":"chat_only","agent_graph":"ChatOnlyAgent","source":"demo_to_agenttracer","thread_id":"demo-bilingual_cn-r2-1793186506","langgraph_step":2,"langgraph_node":"chat","langgraph_triggers":["branch:to:chat"],"langgraph_path":["__pregel_pull","chat"],"langgraph_checkpoint_ns":"chat:34ba0cbb-73c1-ca20-683e-8e5908ee1e89","LANGSMITH_PROJECT":"demo-testing","LANGSMITH_TRACING":"true","LANGSMITH_ENDPOINT":"http://127.0.0.1:1987","LANGSMITH_TRACING_V2":"true","LANGCHAIN_TRACING":"true","revision_id":"dc30926"},"runtime":{"sdk":"langsmith-py","sdk_version":"0.7.22","library":"langchain-core","platform":"Linux-6.12.94+-x86_64-with-glibc2.41","runtime":"python","py_implementation":"CPython","runtime_version":"3.13.5","langchain_version":null,"langchain_core_version":"1.3.2","library_version":"1.3.2"}}
+--chatendboundary--

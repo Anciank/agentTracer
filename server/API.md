@@ -436,6 +436,7 @@ At ingest (create and PATCH), runs denormalize:
 
 ## Changes
 
+_(2026-10-28)_ Ingest: UTF-8-safe preview + NUL strip; PersistBatch degraded retry + `GET /info` `ingest_stats` (multipart stays 204).
 _(2026-10-28)_ M3.6 Monitor `GET /api/ui/projects/{id}/monitor` + `tool=` on traces; `__other__.rolled_keys`; paths `fail_nodes`/`is_new`/`p95_ms`; edge `error_rate`.
 _(2026-10-28)_ LangGraph denorm columns (`langgraph_node`/`langgraph_step`/`path_fingerprint`) + ingest extraction/fallback; index `(session_id, langgraph_node, start_time)`.
 _(2026-10-28)_ SSE `run_upsert` is mandatory on every run create/PATCH (post-merge SpanSummary); relative depth/offset_ms may be briefly stale.
@@ -457,3 +458,21 @@ On every ingest path (`POST /runs`, `/runs/batch`, `/runs/multipart`) and on `PA
 5. Top-level `input_tokens` / `output_tokens` / `total_tokens` / `model` columns
 
 `total_tokens` is computed as `input + output` when still missing.
+
+### PersistBatch partial failure (multipart still 204)
+`POST /runs/multipart` always returns empty **204** (LangSmith SDK parity — retrying a poison run would loop). Per-run `UpsertRun` failures are:
+1. Logged (`run_id`, `trace_id`, `op`, error; no payload / secrets).
+2. Counted on the process.
+3. Retried **once** with bulky fields dropped (`inputs`/`outputs`/`events`/`extra`/`serialized`/`attachments`) so `end_time` / `status` / linkage still land.
+
+Counters are exposed on LangSmith-compat **`GET /info`** as:
+```json
+"ingest_stats": {
+  "persist_errors": 0,
+  "degraded_retries_ok": 0,
+  "degraded_retries_failed": 0
+}
+```
+`POST /runs/batch` still returns `202` with `{written, errors}` (unchanged). Previews and JSON responses truncate with a shared UTF-8-safe helper; NULs (`\u0000`) are stripped from text/jsonb-bound fields before Postgres write.
+
+---

@@ -112,6 +112,9 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 			"local_only":               true,
 			"zstd_compression_enabled": true,
 		},
+		// Ingest visibility: PersistBatch still returns 204 (poison retries would
+		// loop), but per-run failures are logged and counted here for bots.
+		"ingest_stats": s.store.IngestStats(),
 	})
 }
 

@@ -8,10 +8,10 @@ import (
 	"net/http"
 	"strconv"
 	"time"
-	"unicode/utf8"
 
 	"github.com/Anciank/agentTracer/server/internal/live"
 	"github.com/Anciank/agentTracer/server/internal/store"
+	"github.com/Anciank/agentTracer/server/internal/textsafe"
 	"github.com/Anciank/agentTracer/server/internal/traces"
 )
 
@@ -661,11 +661,7 @@ func maybeTruncate(v any) (any, bool) {
 	}
 	preview := b
 	if len(preview) > previewBytes {
-		preview = preview[:previewBytes]
-		// trim to valid utf8
-		for !utf8.Valid(preview) && len(preview) > 0 {
-			preview = preview[:len(preview)-1]
-		}
+		preview = textsafe.TruncateUTF8(preview, previewBytes)
 	}
 	var previewVal any
 	if err := json.Unmarshal(preview, &previewVal); err != nil {

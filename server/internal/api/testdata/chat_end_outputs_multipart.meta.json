@@ -1,0 +1,11 @@
+{
+  "content_type": "multipart/form-data; boundary=chatendboundary",
+  "stuck_chat_id": "01a1823e-a87b-7681-aa6f-16f31923034b",
+  "parts": [
+    "patch.01a1823e-a87b-7681-aa6f-16f31923034b",
+    "patch.01a1823e-a87b-7681-aa6f-16f31923034b.inputs",
+    "patch.01a1823e-a87b-7681-aa6f-16f31923034b.outputs",
+    "patch.01a1823e-a87b-7681-aa6f-16f31923034b.events",
+    "patch.01a1823e-a87b-7681-aa6f-16f31923034b.extra"
+  ]
+}

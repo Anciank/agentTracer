@@ -194,8 +194,9 @@ func TestUIMonitorAndToolFilter(t *testing.T) {
 	if sum != 2 {
 		t.Fatalf("series total sum %d", sum)
 	}
-	if empty != 22 {
-		t.Fatalf("want 22 zero-filled buckets, got %d", empty)
+	// -35m and -12m may land in the same hour bucket depending on wall clock.
+	if empty != 22 && empty != 23 {
+		t.Fatalf("want 22 or 23 zero-filled buckets, got %d (sum=%d)", empty, sum)
 	}
 	models, _ := out["by_model"].([]map[string]any)
 	if len(models) < 2 {

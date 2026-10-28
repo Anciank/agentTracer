@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/Anciank/agentTracer/server/internal/ingest"
 	"github.com/Anciank/agentTracer/server/internal/live"
+	"github.com/Anciank/agentTracer/server/internal/textsafe"
 )
 
 type BlobStore interface {
@@ -25,6 +28,30 @@ type Store struct {
 	pool *pgxpool.Pool
 	blob BlobStore
 	hub  *live.Hub
+
+	persistErrors         atomic.Uint64
+	degradedRetriesOK     atomic.Uint64
+	degradedRetriesFailed atomic.Uint64
+}
+
+// UpsertRunTestHook, when set, is invoked at the start of UpsertRun. Tests use it
+// to inject a one-shot failure for poison payloads. Production leaves it nil.
+var UpsertRunTestHook func(payload map[string]any, op string) error
+
+// IngestStats returns process-local counters for persist failures / degraded retries.
+func (s *Store) IngestStats() map[string]any {
+	return map[string]any{
+		"persist_errors":          s.persistErrors.Load(),
+		"degraded_retries_ok":     s.degradedRetriesOK.Load(),
+		"degraded_retries_failed": s.degradedRetriesFailed.Load(),
+	}
+}
+
+// ResetIngestStatsForTest zeroes counters (tests only).
+func (s *Store) ResetIngestStatsForTest() {
+	s.persistErrors.Store(0)
+	s.degradedRetriesOK.Store(0)
+	s.degradedRetriesFailed.Store(0)
 }
 
 func New(pool *pgxpool.Pool, blob BlobStore) *Store {
@@ -117,16 +144,19 @@ func toJSONOr(v any, def string) []byte {
 	return b
 }
 
+// preview returns a short JSON preview of v, truncated to at most n bytes
+// without splitting a UTF-8 rune. Uses textsafe.TruncateUTF8 (RuneStart +
+// ToValidUTF8) so early invalid bytes cannot empty the preview, and strips
+// NULs that Postgres rejects in text columns.
 func preview(v any, n int) string {
 	if v == nil {
 		return ""
 	}
-	b, _ := json.Marshal(v)
-	s := string(b)
-	if len(s) > n {
-		return s[:n]
+	b, err := json.Marshal(v)
+	if err != nil {
+		return ""
 	}
-	return s
+	return textsafe.StripNUL(string(textsafe.TruncateUTF8(b, n)))
 }
 
 func (s *Store) EnsureSession(ctx context.Context, name string) (uuid.UUID, error) {
@@ -341,6 +371,12 @@ func (s *Store) UpsertRun(ctx context.Context, payload map[string]any, op string
 	if runID == nil {
 		return fmt.Errorf("run id required")
 	}
+	if UpsertRunTestHook != nil {
+		if err := UpsertRunTestHook(payload, op); err != nil {
+			return err
+		}
+	}
+	payload = sanitizeRunPayload(payload)
 
 	// Resolve session
 	var sessionID *uuid.UUID
@@ -448,6 +484,15 @@ func (s *Store) UpsertRun(ctx context.Context, payload map[string]any, op string
 			merged["extra"] = base
 		}
 	}
+
+	// Strip NULs from text/jsonb-bound fields (Postgres rejects \u0000).
+	errorStr = textsafe.StripNUL(errorStr)
+	merged["inputs"] = textsafe.Sanitize(merged["inputs"])
+	merged["outputs"] = textsafe.Sanitize(merged["outputs"])
+	merged["extra"] = textsafe.Sanitize(merged["extra"])
+	merged["events"] = textsafe.Sanitize(merged["events"])
+	merged["serialized"] = textsafe.Sanitize(merged["serialized"])
+	merged["tags"] = textsafe.Sanitize(merged["tags"])
 
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO runs (
@@ -857,6 +902,28 @@ func (s *Store) PersistBatch(ctx context.Context, batch *ingest.Batch) map[strin
 	// Coalesce same-id post+patch into one upsert so part order cannot lose patch fields,
 	// and SSE/fingerprint see the merged row once.
 	seen := map[string]struct{}{}
+	persist := func(p map[string]any, op string) {
+		runID := asString(p["id"])
+		traceID := asString(p["trace_id"])
+		if err := s.UpsertRun(ctx, p, op); err != nil {
+			s.persistErrors.Add(1)
+			log.Printf("persist %s run_id=%s trace_id=%s: %v", op, runID, traceID, err)
+			errors = append(errors, fmt.Sprintf("%s %s: %v", op, runID, err))
+			// Retry once without large fields so end_time/status/linkage still land.
+			// Keep HTTP 204: a batch retry of a poison run would loop forever.
+			deg := degradeRunPayload(p)
+			if err2 := s.UpsertRun(ctx, deg, op); err2 != nil {
+				s.degradedRetriesFailed.Add(1)
+				log.Printf("persist-degraded %s run_id=%s trace_id=%s: %v", op, runID, asString(deg["trace_id"]), err2)
+				errors = append(errors, fmt.Sprintf("%s-degraded %s: %v", op, runID, err2))
+			} else {
+				s.degradedRetriesOK.Add(1)
+				written++
+			}
+			return
+		}
+		written++
+	}
 	for runID, create := range batch.Creates {
 		seen[runID] = struct{}{}
 		p := clonePayload(create)
@@ -865,18 +932,10 @@ func (s *Store) PersistBatch(ctx context.Context, batch *ingest.Batch) map[strin
 		}
 		if patch, ok := batch.Updates[runID]; ok {
 			p = overlayPayload(p, patch)
-			if err := s.UpsertRun(ctx, p, "post"); err != nil {
-				errors = append(errors, fmt.Sprintf("post+patch %s: %v", runID, err))
-			} else {
-				written++
-			}
+			persist(p, "post")
 			continue
 		}
-		if err := s.UpsertRun(ctx, p, "post"); err != nil {
-			errors = append(errors, fmt.Sprintf("post %s: %v", runID, err))
-		} else {
-			written++
-		}
+		persist(p, "post")
 	}
 	for runID, payload := range batch.Updates {
 		if _, ok := seen[runID]; ok {
@@ -886,11 +945,7 @@ func (s *Store) PersistBatch(ctx context.Context, batch *ingest.Batch) map[strin
 		if _, ok := p["id"]; !ok {
 			p["id"] = runID
 		}
-		if err := s.UpsertRun(ctx, p, "patch"); err != nil {
-			errors = append(errors, fmt.Sprintf("patch %s: %v", runID, err))
-		} else {
-			written++
-		}
+		persist(p, "patch")
 	}
 	for _, fb := range batch.Feedback {
 		if err := s.CreateFeedback(ctx, fb); err != nil {
@@ -906,4 +961,30 @@ func (s *Store) PersistBatch(ctx context.Context, batch *ingest.Batch) map[strin
 		errors = []string{}
 	}
 	return map[string]any{"written": written, "errors": errors}
+}
+
+// degradeRunPayload drops bulky fields that commonly poison UpsertRun (preview/jsonb)
+// while keeping end_time, status, error, timing, tokens, and parent/trace linkage.
+func degradeRunPayload(p map[string]any) map[string]any {
+	out := clonePayload(p)
+	for _, k := range []string{"inputs", "outputs", "events", "extra", "serialized", "attachments"} {
+		delete(out, k)
+	}
+	if e, ok := out["error"].(string); ok {
+		out["error"] = textsafe.TruncateUTF8String(textsafe.StripNUL(e), 4096)
+	}
+	return out
+}
+
+func sanitizeRunPayload(p map[string]any) map[string]any {
+	if p == nil {
+		return p
+	}
+	out := clonePayload(p)
+	for _, k := range []string{"inputs", "outputs", "extra", "events", "serialized", "tags", "error", "name", "status"} {
+		if v, ok := out[k]; ok {
+			out[k] = textsafe.Sanitize(v)
+		}
+	}
+	return out
 }
