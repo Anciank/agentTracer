@@ -332,7 +332,11 @@ export type ToolRow = {
   error_rate: number;
   p50_ms: number | null;
   p99_ms: number | null;
-  /** null when tools do not carry tokens — UI shows "—" */
+  /**
+   * null when SUM(input)=SUM(output)=SUM(total)=0 (UI: "—").
+   * Otherwise real SUMs. total-only rows have input=0 and output=0 — UI shows
+   * just total with no in/out split.
+   */
   tokens: Tokens | null;
 };
 

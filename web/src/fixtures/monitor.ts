@@ -190,6 +190,18 @@ function toolsFor(seed: number, empty: boolean, traceCount: number): ToolRow[] {
           ))
         : Math.max(1, Math.round(totalToolCalls * share) - (idx === 1 ? seed : 0));
     const error_count = Math.round(calls * x.err);
+    // Demo shapes matching API.md: null | total-only | real in/out SUMs.
+    let tokens: ToolRow["tokens"] = null;
+    if (idx === 0) {
+      tokens = null; // typical tool — no usage
+    } else if (idx === 1) {
+      const total = Math.max(12, calls * 40);
+      tokens = { input: 0, output: 0, total }; // total-only
+    } else {
+      const input = Math.max(8, calls * 25);
+      const output = Math.max(4, calls * 10);
+      tokens = { input, output, total: input + output };
+    }
     return {
       tool: x.tool,
       calls,
@@ -198,7 +210,7 @@ function toolsFor(seed: number, empty: boolean, traceCount: number): ToolRow[] {
       error_rate: calls ? error_count / calls : 0,
       p50_ms: x.p50,
       p99_ms: x.p99,
-      tokens: null,
+      tokens,
     };
   });
   const callSum = rows.reduce((a, r) => a + r.calls, 0) || 1;

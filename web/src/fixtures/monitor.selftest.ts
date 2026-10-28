@@ -23,12 +23,21 @@ for (const w of ["1h", "24h", "7d"] as const) {
   const shareSum = m.by_model.reduce((a, r) => a + r.share, 0);
   assert(Math.abs(shareSum - 1) < 1e-9, `${w} model share sum`);
 
+  // series_traces[].total sums to header trace_count (no series_trace_n)
   const seriesTot = m.series_traces.reduce((a, b) => a + b.total, 0);
-  assert(seriesTot === m.trace_count, `${w} series vs header traces`);
+  assert(seriesTot === m.trace_count, `${w} series_traces sum vs trace_count`);
 
-  for (const t of m.by_tool) {
-    assert(t.tokens === null, `${w} tool tokens null`);
-  }
+  // by_tool token shapes: null | total-only | in/out
+  assert(m.by_tool.length >= 3, `${w} tools`);
+  const byName = Object.fromEntries(m.by_tool.map((t) => [t.tool, t]));
+  assert(byName.search_docs?.tokens === null, `${w} search_docs tokens null`);
+  const refund = byName.refund?.tokens;
+  assert(refund != null && refund.input === 0 && refund.output === 0 && refund.total > 0, `${w} refund total-only`);
+  const lookup = byName.lookup_order?.tokens;
+  assert(
+    lookup != null && lookup.input > 0 && lookup.output > 0 && lookup.total === lookup.input + lookup.output,
+    `${w} lookup_order in/out`
+  );
 }
 
 console.log("monitor.selftest: ok");

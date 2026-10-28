@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --pretty false",
-    "test:unit": "npx --yes tsx src/lib/liveMerge.selftest.ts && npx --yes tsx src/lib/tree.selftest.ts && npx --yes tsx src/lib/graphLayout.selftest.ts && npx --yes tsx src/lib/mapStatus.selftest.ts && npx --yes tsx src/lib/monitorFilters.selftest.ts && npx --yes tsx src/lib/monitorMerge.selftest.ts && npx --yes tsx src/fixtures/monitor.selftest.ts"
+    "test:unit": "npx --yes tsx src/lib/format.selftest.ts && npx --yes tsx src/lib/liveMerge.selftest.ts && npx --yes tsx src/lib/tree.selftest.ts && npx --yes tsx src/lib/graphLayout.selftest.ts && npx --yes tsx src/lib/mapStatus.selftest.ts && npx --yes tsx src/lib/monitorFilters.selftest.ts && npx --yes tsx src/lib/monitorMerge.selftest.ts && npx --yes tsx src/fixtures/monitor.selftest.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.59.0",

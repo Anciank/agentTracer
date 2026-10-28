@@ -37,3 +37,12 @@ export function fmtTokens(t: { total: number } | null | undefined): string {
   if (t == null) return "—";
   return `${(t.total || 0).toLocaleString()} tok`;
 }
+
+/** by_tool tokens: null → —; total-only (in=out=0) → total; else in · out. */
+export function fmtToolTokens(
+  t: { input: number; output: number; total: number } | null | undefined
+): string {
+  if (t == null) return "—";
+  if (t.input === 0 && t.output === 0) return fmtInt(t.total);
+  return `${fmtInt(t.input)} in · ${fmtInt(t.output)} out`;
+}

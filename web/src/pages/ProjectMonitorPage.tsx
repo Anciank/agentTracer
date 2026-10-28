@@ -8,7 +8,7 @@ import {
   StackedTracesChart,
   TokensChart,
 } from "../components/monitor/Charts";
-import { fmtDurMs, fmtInt, fmtPct } from "../lib/format";
+import { fmtDurMs, fmtInt, fmtPct, fmtToolTokens } from "../lib/format";
 import { isMapEndpointMissing } from "../lib/mapStatus";
 import {
   drillBucket,
@@ -148,9 +148,9 @@ export default function ProjectMonitorPage({ projectId, window: win }: Props) {
     () => (data ? sortTools(data.by_tool, ui.toolSort.key, ui.toolSort.dir) : []),
     [data, ui.toolSort]
   );
-  /** Hide Tokens column when every tool row has null/empty/zero tokens. */
+  /** Hide Tokens column when every tool row is null (all-zero SUMs). */
   const showToolTokens = useMemo(
-    () => tools.some((r) => r.tokens != null && r.tokens.total != null && r.tokens.total > 0),
+    () => tools.some((r) => r.tokens != null),
     [tools]
   );
 
@@ -445,7 +445,7 @@ export default function ProjectMonitorPage({ projectId, window: win }: Props) {
                       <td>{fmtDurMs(r.p50_ms)}</td>
                       <td>{fmtDurMs(r.p99_ms)}</td>
                       {showToolTokens ? (
-                        <td>{r.tokens && r.tokens.total > 0 ? fmtInt(r.tokens.total) : "—"}</td>
+                        <td>{fmtToolTokens(r.tokens)}</td>
                       ) : null}
                     </tr>
                   ))}
