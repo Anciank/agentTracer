@@ -67,13 +67,16 @@ if docker inspect "$MINIO_CONTAINER" >/dev/null 2>&1; then
   NET="$(docker inspect "$MINIO_CONTAINER" -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' | awk '{print $1}')"
   MINIO_IP="$(docker inspect "$MINIO_CONTAINER" -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' | awk '{print $1}')"
   if [[ -n "${NET:-}" && -n "${MINIO_IP:-}" ]]; then
-    echo "[backup] mirroring s3://$S3_BUCKET from $MINIO_IP via network $NET"
+    echo "[backup] mirroring s3://$S3_BUCKET from $MINIO_IP via network $NET (aws-cli)"
+    # amazon/aws-cli is already cached on the VPS; minio/mc is not pullable here.
     if ! docker run --rm --network "$NET" \
-      -e "MC_HOST_local=http://${S3_ACCESS}:${S3_SECRET}@${MINIO_IP}:9000" \
+      -e AWS_ACCESS_KEY_ID="$S3_ACCESS" \
+      -e AWS_SECRET_ACCESS_KEY="$S3_SECRET" \
+      -e AWS_DEFAULT_REGION=us-east-1 \
       -v "$SILO_DEST:/out" \
-      minio/mc:RELEASE.2025-08-13T08-35-41Z \
-      mirror --quiet "local/${S3_BUCKET}" /out; then
-      echo "[backup] WARN: silo mirror failed (bucket empty or mc issue); continuing"
+      amazon/aws-cli:2.15.0 \
+      s3 sync "s3://${S3_BUCKET}" /out --endpoint-url "http://${MINIO_IP}:9000"; then
+      echo "[backup] WARN: silo mirror failed (bucket empty or aws-cli issue); continuing"
     fi
   else
     echo "[backup] WARN: could not resolve minio network/ip; skipped silo mirror"
