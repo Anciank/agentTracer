@@ -51,6 +51,32 @@ func indexExists(t *testing.T, pool *pgxpool.Pool, name string) bool {
 	return exists
 }
 
+func tableExistsPublic(t *testing.T, pool *pgxpool.Pool, name string) bool {
+	t.Helper()
+	var exists bool
+	err := pool.QueryRow(context.Background(),
+		`SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name=$1)`, name,
+	).Scan(&exists)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return exists
+}
+
+var wantAll = []string{"001_init", "002_run_metrics", "003_langgraph", "004_agent_map", "005_trace_graph_cache"}
+
+func assertVersions(t *testing.T, versions, want []string) {
+	t.Helper()
+	if len(versions) < len(want) {
+		t.Fatalf("versions=%v want %v", versions, want)
+	}
+	for i, w := range want {
+		if versions[i] != w {
+			t.Fatalf("versions[%d]=%v want %v (all=%v)", i, versions[i], w, versions)
+		}
+	}
+}
+
 func TestUpFreshAndIdempotent(t *testing.T) {
 	dsn := testDSN(t)
 	ctx := context.Background()
@@ -68,14 +94,9 @@ func TestUpFreshAndIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"001_init", "002_run_metrics", "003_langgraph", "004_agent_map"}
-	if len(versions) < len(want) {
-		t.Fatalf("expected >=%d versions, got %v", len(want), versions)
-	}
-	for i, w := range want {
-		if versions[i] != w {
-			t.Fatalf("versions[%d]=%v want %v (all=%v)", i, versions[i], w, versions)
-		}
+	assertVersions(t, versions, wantAll)
+	if !tableExistsPublic(t, pool, "trace_graph_cache") {
+		t.Fatal("005 did not create trace_graph_cache")
 	}
 	if err := Up(ctx, pool); err != nil {
 		t.Fatalf("second Up: %v", err)
@@ -87,7 +108,7 @@ func TestUpFreshAndIdempotent(t *testing.T) {
 }
 
 // Prod-shaped: 001-004 already applied as raw IF NOT EXISTS SQL, no schema_migrations.
-// Bootstrap marks 001-003; 004 runs as a no-op; data rows preserved.
+// Bootstrap marks 001-003; 004 runs as no-op; 005 creates trace_graph_cache; rows preserved.
 func TestUpBootstrapProdDumpNoOp004(t *testing.T) {
 	dsn := testDSN(t)
 	ctx := context.Background()
@@ -98,18 +119,16 @@ func TestUpBootstrapProdDumpNoOp004(t *testing.T) {
 	defer pool.Close()
 
 	resetSchema(t, pool)
-	files, err := listSQL()
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Apply every migration file raw (like today's prod before schema_migrations).
-	applyRawSQL(t, pool, files...)
+	applyRawSQL(t, pool, "001_init.sql", "002_run_metrics.sql", "003_langgraph.sql", "004_agent_map.sql")
 	_, err = pool.Exec(ctx, `INSERT INTO sessions(id, name) VALUES ('11111111-1111-1111-1111-111111111111', 'bootstrap-keep')`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !indexExists(t, pool, "idx_runs_session_root_start") {
 		t.Fatal("precondition: 004 indexes should already exist")
+	}
+	if tableExistsPublic(t, pool, "trace_graph_cache") {
+		t.Fatal("precondition: 005 table must NOT exist yet")
 	}
 
 	if err := Up(ctx, pool); err != nil {
@@ -119,11 +138,9 @@ func TestUpBootstrapProdDumpNoOp004(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"001_init", "002_run_metrics", "003_langgraph", "004_agent_map"}
-	for i, w := range want {
-		if i >= len(versions) || versions[i] != w {
-			t.Fatalf("versions=%v want prefix %v", versions, want)
-		}
+	assertVersions(t, versions, wantAll)
+	if !tableExistsPublic(t, pool, "trace_graph_cache") {
+		t.Fatal("005 did not create trace_graph_cache")
 	}
 	var n int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sessions WHERE name='bootstrap-keep'`).Scan(&n); err != nil {
@@ -137,8 +154,7 @@ func TestUpBootstrapProdDumpNoOp004(t *testing.T) {
 	}
 }
 
-// Older DB stopped at 003: no schema_migrations, no 004 indexes.
-// Bootstrap marks 001-003; 004 must actually create indexes; schema_migrations ends 001-004.
+// Older DB stopped at 003: bootstrap marks 001-003; 004 creates indexes; 005 creates cache table.
 func TestUpBootstrapFrom003ThenRuns004(t *testing.T) {
 	dsn := testDSN(t)
 	ctx := context.Background()
@@ -153,9 +169,6 @@ func TestUpBootstrapFrom003ThenRuns004(t *testing.T) {
 	if indexExists(t, pool, "idx_runs_session_root_start") {
 		t.Fatal("precondition: 004 index must NOT exist yet")
 	}
-	if indexExists(t, pool, "idx_runs_trace_visit") {
-		t.Fatal("precondition: 004 index must NOT exist yet")
-	}
 
 	if err := Up(ctx, pool); err != nil {
 		t.Fatalf("Up: %v", err)
@@ -164,15 +177,7 @@ func TestUpBootstrapFrom003ThenRuns004(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"001_init", "002_run_metrics", "003_langgraph", "004_agent_map"}
-	if len(versions) < len(want) {
-		t.Fatalf("versions=%v want %v", versions, want)
-	}
-	for i, w := range want {
-		if versions[i] != w {
-			t.Fatalf("versions[%d]=%v want %v (all=%v)", i, versions[i], w, versions)
-		}
-	}
+	assertVersions(t, versions, wantAll)
 	for _, idx := range []string{
 		"idx_runs_session_root_start",
 		"idx_runs_session_fingerprint",
@@ -182,5 +187,24 @@ func TestUpBootstrapFrom003ThenRuns004(t *testing.T) {
 		if !indexExists(t, pool, idx) {
 			t.Fatalf("004 did not create index %s", idx)
 		}
+	}
+	if !tableExistsPublic(t, pool, "trace_graph_cache") {
+		t.Fatal("005 did not create trace_graph_cache")
+	}
+}
+
+func TestListSQLIncludes005(t *testing.T) {
+	files, err := listSQL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range files {
+		if f == "005_trace_graph_cache.sql" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("005_trace_graph_cache.sql missing from listSQL: %v", files)
 	}
 }
