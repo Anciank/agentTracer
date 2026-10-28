@@ -40,3 +40,16 @@ func TestEncodeDecodeCursor(t *testing.T) {
 		t.Fatalf("time %v", st)
 	}
 }
+
+func TestExtractUsagePatchOverwrites(t *testing.T) {
+	merged := map[string]any{
+		"input_tokens": 9, "output_tokens": 1, "total_tokens": 10,
+		"extra": map[string]any{"metadata": map[string]any{
+			"usage": map[string]any{"input_tokens": 12, "output_tokens": 8, "total_tokens": 20},
+		}},
+	}
+	in, out, tot, _ := extractUsage(merged)
+	if in != 12 || out != 8 || tot != 20 {
+		t.Fatalf("want 12/8/20 got %d/%d/%d", in, out, tot)
+	}
+}
