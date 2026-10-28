@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"time"
@@ -134,8 +135,9 @@ func (s *Store) upsertTraceGraphCache(ctx context.Context, traceID, sessionID uu
 }
 
 // BackfillGraphCache recomputes cache rows for finished roots missing a cache entry.
-// limit<=0 means no limit. Returns number of traces written.
-func (s *Store) BackfillGraphCache(ctx context.Context, limit int) (int, error) {
+// limit<=0 means no limit. Per-trace refresh errors are logged and skipped; only the
+// initial select can return an error. Returns (written, failed).
+func (s *Store) BackfillGraphCache(ctx context.Context, limit int) (written, failed int, err error) {
 	q := `
 		SELECT r.trace_id FROM runs r
 		LEFT JOIN trace_graph_cache c ON c.trace_id = r.trace_id
@@ -147,25 +149,36 @@ func (s *Store) BackfillGraphCache(ctx context.Context, limit int) (int, error) 
 	}
 	rows, err := s.pool.Query(ctx, q)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	defer rows.Close()
 	var ids []uuid.UUID
 	for rows.Next() {
 		var id uuid.UUID
 		if err := rows.Scan(&id); err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 		ids = append(ids, id)
 	}
-	n := 0
-	for _, id := range ids {
-		if err := s.RefreshPathFingerprint(ctx, id); err != nil {
-			return n, err
-		}
-		n++
+	return s.backfillGraphCacheIDs(ctx, ids, nil)
+}
+
+// backfillGraphCacheIDs refreshes each id; refresh may be overridden in tests.
+// A nil refresh uses RefreshPathFingerprint. Per-id failures log-and-continue.
+func (s *Store) backfillGraphCacheIDs(ctx context.Context, ids []uuid.UUID, refresh func(context.Context, uuid.UUID) error) (written, failed int, err error) {
+	if refresh == nil {
+		refresh = s.RefreshPathFingerprint
 	}
-	return n, nil
+	for _, id := range ids {
+		if err := refresh(ctx, id); err != nil {
+			log.Printf("graph cache backfill: trace %s: %v", id, err)
+			failed++
+			continue
+		}
+		written++
+	}
+	log.Printf("graph cache backfill summary: wrote %d, failed %d", written, failed)
+	return written, failed, nil
 }
 
 func (s *Store) loadCachedVisitsInWindow(ctx context.Context, sessionID uuid.UUID, from, to time.Time) (map[uuid.UUID][]visitKey, int, error) {

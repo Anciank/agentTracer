@@ -55,11 +55,13 @@ func main() {
 
 	st := store.New(pool, blob)
 	if os.Getenv("AGENTTRACER_BACKFILL_GRAPH_CACHE") == "1" {
-		n, err := st.BackfillGraphCache(ctx, 0)
+		wrote, failed, err := st.BackfillGraphCache(ctx, 0)
 		if err != nil {
-			log.Fatalf("graph cache backfill: %v", err)
+			// Select/list failure only — continue booting without Fatalf.
+			log.Printf("graph cache backfill: list error: %v (continuing)", err)
+		} else {
+			log.Printf("graph cache backfill wrote %d traces (%d failed)", wrote, failed)
 		}
-		log.Printf("graph cache backfill wrote %d traces", n)
 	}
 	srv := api.New(cfg, st)
 	handler := api.LogRequests(srv.Handler())

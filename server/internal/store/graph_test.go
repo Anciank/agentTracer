@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -204,12 +205,12 @@ func TestUIGraphPathsAndFingerprint(t *testing.T) {
 	if cacheKeys[len(cacheKeys)-1] != "audit" {
 		t.Fatalf("cache not refreshed with audit: %v", cacheKeys)
 	}
-	n, err := st.BackfillGraphCache(ctx, 10)
+	wrote, failed, err := st.BackfillGraphCache(ctx, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 0 {
-		t.Fatalf("backfill should be noop when complete, got %d", n)
+	if wrote != 0 || failed != 0 {
+		t.Fatalf("backfill should be noop when complete, wrote=%d failed=%d", wrote, failed)
 	}
 	_ = graph.OtherKey
 }
@@ -360,5 +361,33 @@ func TestUIGraphFanoutLatencyAndUnended(t *testing.T) {
 	}
 	if ret["p50_ms"] != nil || ret["p95_ms"] != nil {
 		t.Fatalf("retrieve unended want null latency, got %v", ret)
+	}
+}
+
+func TestBackfillGraphCacheContinues(t *testing.T) {
+	ids := []uuid.UUID{
+		uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+		uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+		uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+	}
+	failID := ids[1]
+	var seen []uuid.UUID
+	refresh := func(ctx context.Context, id uuid.UUID) error {
+		seen = append(seen, id)
+		if id == failID {
+			return fmt.Errorf("injected failure")
+		}
+		return nil
+	}
+	st := &Store{}
+	wrote, failed, err := st.backfillGraphCacheIDs(context.Background(), ids, refresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wrote != 2 || failed != 1 {
+		t.Fatalf("wrote=%d failed=%d want 2/1", wrote, failed)
+	}
+	if len(seen) != 3 {
+		t.Fatalf("expected all 3 traces attempted, got %d", len(seen))
 	}
 }
