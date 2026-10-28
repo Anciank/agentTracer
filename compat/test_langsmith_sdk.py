@@ -42,13 +42,14 @@ def test_run_tree_nested(sdk_env, client: httpx.Client, base_url: str, api_key: 
         time.sleep(0.4)
     time.sleep(1.0)
 
-    # Find via UI projects / traces
-    projects = httpx.get(f"{base_url}/ui/projects", timeout=30).json()
-    assert project in projects or any(project in p for p in projects)
+    headers = {"x-api-key": api_key}
+    projects = httpx.get(f"{base_url}/api/ui/projects", headers=headers, timeout=30).json()
+    assert any(p.get("name") == project for p in projects), projects
 
-    traces = httpx.get(f"{base_url}/ui/traces", params={"session": project}, timeout=30).json()
-    assert traces, f"no traces for {project}: projects={projects}"
-    detail = httpx.get(f"{base_url}/ui/traces/{traces[0]['trace_id']}", timeout=30).json()
+    traces = httpx.get(f"{base_url}/api/ui/traces", params={"project": project}, headers=headers, timeout=30).json()
+    rows = traces.get("traces") or []
+    assert rows, f"no traces for {project}: projects={projects}"
+    detail = httpx.get(f"{base_url}/api/ui/traces/{rows[0]['trace_id']}/summary", headers=headers, timeout=30).json()
     names = {r["name"] for r in detail["rows"]}
     assert "sdk-root" in names
     assert "sdk-child" in names
@@ -77,5 +78,6 @@ def test_langchain_fake_llm(sdk_env, client: httpx.Client, base_url: str, api_ke
         time.sleep(1.5)
     time.sleep(1.0)
 
-    traces = httpx.get(f"{base_url}/ui/traces", params={"session": project}, timeout=30).json()
-    assert traces, "langchain trace missing"
+    headers = {"x-api-key": api_key}
+    traces = httpx.get(f"{base_url}/api/ui/traces", params={"project": project}, headers=headers, timeout=30).json()
+    assert traces.get("traces"), "langchain trace missing"

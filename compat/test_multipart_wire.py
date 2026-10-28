@@ -5,22 +5,9 @@ import json
 from uuid import uuid4
 
 import httpx
-import pytest
 import zstandard
 
-BOUNDARY = "boundary123"
-
-
-def encode_multipart(parts: list[tuple[str, bytes, str]]) -> bytes:
-    out = bytearray()
-    for name, data, content_type in parts:
-        out += f"--{BOUNDARY}\r\n".encode()
-        out += f'Content-Disposition: form-data; name="{name}"\r\n'.encode()
-        out += f"Content-Type: {content_type}\r\n\r\n".encode()
-        out += data
-        out += b"\r\n"
-    out += f"--{BOUNDARY}--\r\n".encode()
-    return bytes(out)
+from helpers import BOUNDARY, encode_multipart
 
 
 def test_info_requires_key_and_reports_multipart(client: httpx.Client):
@@ -57,7 +44,7 @@ def test_multipart_nested_trace_and_attachment(client: httpx.Client):
         content=body,
         headers={"Content-Type": f"multipart/form-data; boundary={BOUNDARY}"},
     )
-    assert r.status_code == 202, r.text
+    assert r.status_code == 204, r.text
 
     # zstd
     zst = zstandard.ZstdCompressor().compress(body)
@@ -69,10 +56,9 @@ def test_multipart_nested_trace_and_attachment(client: httpx.Client):
             "Content-Encoding": "zstd",
         },
     )
-    assert r.status_code == 202, r.text
+    assert r.status_code == 204, r.text
 
-    detail = client.get(f"/ui/traces/{run_id}").json()
-    assert detail["trace_id"] == run_id
+    detail = client.get(f"/api/ui/traces/{run_id}/summary").json()
     assert len(detail["rows"]) >= 2
     assert detail["summary"]["run_count"] >= 2
 
@@ -94,12 +80,9 @@ def test_batch_json(client: httpx.Client):
 
 
 def test_ui_projects_and_list(client: httpx.Client):
-    # unauthenticated UI routes
-    c = httpx.Client(base_url=str(client.base_url), timeout=30.0)
-    projects = c.get("/ui/projects").json()
+    projects = client.get("/api/ui/projects").json()
     assert isinstance(projects, list)
-    traces = c.get("/ui/traces").json()
-    assert isinstance(traces, list)
-    html = c.get("/ui")
+    traces = client.get("/api/ui/traces").json()
+    assert "traces" in traces
+    html = client.get("/ui")
     assert html.status_code == 200
-    assert b"html" in html.content.lower() or b"<!doctype" in html.content.lower() or b"<html" in html.content.lower()

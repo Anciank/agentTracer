@@ -2,14 +2,21 @@
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
 
 import pytest
 import httpx
+
+# Allow `from helpers import ...` when running from repo root or compat/
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 
 @pytest.fixture(scope="session")
 def base_url() -> str:
     url = os.environ.get("AGENTTRACER_BASE_URL", "http://127.0.0.1:1984").rstrip("/")
     return url
+
 
 @pytest.fixture(scope="session")
 def api_key() -> str:
@@ -21,6 +28,7 @@ def api_key() -> str:
     if not key:
         pytest.skip("AGENTTRACER_API_KEY not set")
     return key
+
 
 @pytest.fixture(scope="session")
 def client(base_url: str, api_key: str) -> httpx.Client:
