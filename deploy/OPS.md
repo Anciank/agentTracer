@@ -39,6 +39,30 @@ never call `config --images` for retags. Guard: `deploy/check_no_dynamic_image_t
   Sibling: `deploy/rename_rollback_1985.sh` (invoked by the suite).
 
 
+
+
+## Deploy lock & :1985 slot (OOM guard)
+
+Prod go builds peaked ~1.06GiB above baseline on this 1.9GiB VPS. Concurrent `at-*`
+test stacks on :1985 plus a prod deploy will OOM. Guards:
+
+1. **`deploy/deploy.sh`** (before backup / build):
+   - Acquires `/tmp/agenttracer-deploy.lock` via `flock` (override: `DEPLOY_LOCK_FILE`);
+     released on EXIT through `trap`.
+   - Refuses if any compose project name starts with `at-` (`docker compose ls -q`),
+     unless `--force-with-test-stack` is passed.
+   - Before `compose build`, aborts if `MemAvailable` in `/proc/meminfo` is below
+     **900 MiB** (override: `DEPLOY_MIN_AVAIL_MB`). Prints the observed value + threshold.
+   - Read-only: `./deploy/deploy.sh --check-only` (alias `--preflight-only`) runs the
+     test-stack + memory checks and a lock probe — **never** backup/build/up.
+
+2. **`deploy/slot_check.sh`** — bots **must** run this before taking :1985:
+   ```bash
+   ./deploy/slot_check.sh
+   ```
+   Fails if the deploy lock is held, or if anything already listens on :1985.
+   Shared helpers live in `deploy/oom_guards.sh`. Tests: `deploy/oom_guards_test.sh`.
+
 ## Release note — migration 006 + graph-cache backfill
 
 - `006_graph_cache_lat_sentinel.sql` runs `DELETE FROM trace_graph_cache` (derived cache only) then
@@ -64,11 +88,13 @@ never call `config --images` for retags. Guard: `deploy/check_no_dynamic_image_t
 
 ## :1985 queue
 CodeBro → TestingBro → DevOpsBro. Do not start on :1985 until TestingBro hands it off.
+**Bots must run `./deploy/slot_check.sh` first** (fails if deploy lock held or :1985 busy).
 When ours: copy this branch to the VPS (or push for TechLeadBro), then:
 
 ```bash
-cd ~/src/agentTracer   # or a worktree checked out at ops-migrations tip
-# after handoff:
+cd ~/src/agentTracer   # or a worktree checked out at ops-oom-guard / ops tip
+./deploy/slot_check.sh
+# after handoff + slot OK:
 AGENTTRACER_TAKEOVER_1985=1 ./deploy/test_on_1985.sh
 ```
 

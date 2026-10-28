@@ -9,6 +9,9 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# shellcheck source=oom_guards.sh
+source "$REPO_ROOT/deploy/oom_guards.sh"
+
 COMPOSE_PROJECT="${AGENTTRACER_COMPOSE_PROJECT:-agenttracer}"
 # Space-separated -f args, e.g. "-f docker-compose.yml -f deploy/docker-compose.at-m2.yml"
 COMPOSE_FILE_ARGS="${AGENTTRACER_COMPOSE_FILES:--f docker-compose.yml}"
@@ -23,6 +26,8 @@ SKIP_BACKUP="${AGENTTRACER_SKIP_BACKUP:-0}"
 SKIP_PREFLIGHT="${AGENTTRACER_SKIP_PREFLIGHT:-0}"
 # One-shot post-migrate: start once with AGENTTRACER_BACKFILL_GRAPH_CACHE=1, then clear.
 BACKFILL_GRAPH_CACHE="${AGENTTRACER_DEPLOY_BACKFILL_GRAPH_CACHE:-0}"
+FORCE_WITH_TEST_STACK=0
+CHECK_ONLY=0
 
 for arg in "$@"; do
   case "$arg" in
@@ -30,12 +35,27 @@ for arg in "$@"; do
     --skip-backup) SKIP_BACKUP=1 ;;
     --skip-preflight) SKIP_PREFLIGHT=1 ;;
     --backfill-graph-cache) BACKFILL_GRAPH_CACHE=1 ;;
+    --force-with-test-stack) FORCE_WITH_TEST_STACK=1 ;;
+    --check-only|--preflight-only) CHECK_ONLY=1 ;;
     --allow-down-v) echo "ERROR: --allow-down-v refused; never down -v on deploy" >&2; exit 2 ;;
     *) echo "unknown arg: $arg" >&2; exit 2 ;;
   esac
 done
 
 echo "[deploy] project=$COMPOSE_PROJECT branch=$BRANCH health=$HEALTH_URL"
+
+# Read-only gate: report test-stack + MemAvailable (+ lock probe). Never backup/build.
+if [[ "$CHECK_ONLY" == "1" ]]; then
+  deploy_run_check_only "$FORCE_WITH_TEST_STACK"
+  exit $?
+fi
+
+# Acquire deploy lock before backup/build; release on any exit.
+deploy_acquire_deploy_lock
+trap 'deploy_release_deploy_lock' EXIT
+
+# Refuse when at-* test stacks are up (OOM risk) unless explicitly forced.
+deploy_check_no_at_test_stacks "$FORCE_WITH_TEST_STACK"
 
 # HARDCODED app image + rollback tag. NEVER derive from `docker compose config --images`
 # (Compose 2.40.x ignores the service arg; lists ALL images in nondeterministic order;
@@ -146,6 +166,9 @@ if [[ "$SKIP_PREFLIGHT" != "1" ]]; then
 else
   echo "[deploy] skipping preflight"
 fi
+
+# Memory gate immediately before the go/docker build (peak ~1.06GiB above baseline).
+deploy_check_mem_available
 
 echo "[deploy] build app (image=$APP_IMAGE)"
 compose build app
