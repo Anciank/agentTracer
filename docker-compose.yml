@@ -61,6 +61,7 @@ services:
       AGENTTRACER_COLD_RETENTION_DAYS: "180"
       # One-shot post-migrate backfill; leave unset/empty in steady state (see deploy --backfill-graph-cache).
       AGENTTRACER_BACKFILL_GRAPH_CACHE: ${AGENTTRACER_BACKFILL_GRAPH_CACHE:-}
+      AGENTTRACER_BACKFILL_CHAT_PREVIEWS: ${AGENTTRACER_BACKFILL_CHAT_PREVIEWS:-}
     volumes:
       - ./secrets/api_key:/run/secrets/api_key:ro
     depends_on:

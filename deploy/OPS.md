@@ -85,6 +85,12 @@ test stacks on :1985 plus a prod deploy will OOM. Guards:
   (`RefreshPathFingerprint` per finished root missing a cache row).
 - Steady-state compose leaves `AGENTTRACER_BACKFILL_GRAPH_CACHE` empty via `${…:-}`.
 
+- **Chat preview backfill** (migration `010` columns empty on legacy rows): same one-shot pattern —
+  `./deploy/deploy.sh --backfill-chat-previews` or `AGENTTRACER_DEPLOY_BACKFILL_CHAT_PREVIEWS=1`.
+  Starts once with `AGENTTRACER_BACKFILL_CHAT_PREVIEWS=1`, runs `BackfillChatPreviews` (batched, idempotent,
+  resolves `_s3` cold pointers), then force-recreates with the env cleared. Prefer this over a SQL migration
+  because preview extraction is Go (`chatPreviewsFromIO`) and may need the blob store.
+
 ## Resource limits (prod compose)
 - postgres 512m, minio 256m, app 384m (+ GOMEMLIMIT 300MiB). Leaves room for one :1985 test stack.
 

@@ -65,6 +65,14 @@ func main() {
 			log.Printf("graph cache backfill wrote %d traces (%d failed)", wrote, failed)
 		}
 	}
+	if os.Getenv("AGENTTRACER_BACKFILL_CHAT_PREVIEWS") == "1" {
+		wrote, failed, scanned, err := st.BackfillChatPreviews(ctx, 0)
+		if err != nil {
+			log.Printf("chat preview backfill: list error: %v (continuing)", err)
+		} else {
+			log.Printf("chat preview backfill wrote %d traces (%d failed, scanned %d)", wrote, failed, scanned)
+		}
+	}
 	srv := api.New(cfg, st)
 	handler := api.LogRequests(srv.Handler())
 

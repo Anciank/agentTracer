@@ -52,7 +52,7 @@ Integers ≥ 0. Missing sides are `0`, not null.
 - `duration_ms`: root span wall time (`end - start`); `null` if `end` is null.
 - `model`: most-frequent non-empty model among LLM runs in the trace; ties → lexicographically first; `null` if none.
 - `run_types`: counts by `run_type` string; empty object if none.
-- `first_user_preview` / `last_ai_preview`: `string` or `null`. First user/human and last AI/assistant message text from the trace, truncated to ≤120 UTF-8 bytes via `textsafe`. Filled at ingest into `runs.first_user_preview` / `runs.last_ai_preview` (root denormalized); list falls back to scanning loaded run payloads when empty.
+- `first_user_preview` / `last_ai_preview`: `string` or `null`. First user/human and last AI/assistant message text from the trace, truncated to ≤120 UTF-8 bytes via `textsafe`. Filled at ingest into `runs.first_user_preview` / `runs.last_ai_preview` (root denormalized); list falls back to scanning loaded run payloads when empty. Legacy rows (NULL/empty after migration `010`) are filled by the one-shot `AGENTTRACER_BACKFILL_CHAT_PREVIEWS=1` startup backfill (same pattern as graph-cache): batched, idempotent, resolves `{"_s3":…}` cold pointers via the blob store.
 - **No `cost_usd`.**
 
 ### `SpanSummary` (waterfall row — no payloads)
