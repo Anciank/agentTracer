@@ -6,6 +6,12 @@ export type UiFilters = {
   status?: TraceStatus;
   sort?: TraceListParams["sort"];
   live?: boolean;
+  from?: string;
+  to?: string;
+  node?: string;
+  edge?: string;
+  path?: string;
+  node_fail?: string;
 };
 
 export function filtersFromSearch(sp: URLSearchParams): UiFilters {
@@ -21,6 +27,18 @@ export function filtersFromSearch(sp: URLSearchParams): UiFilters {
     f.sort = sort;
   }
   if (sp.get("live") === "1") f.live = true;
+  const from = sp.get("from") || undefined;
+  const to = sp.get("to") || undefined;
+  const node = sp.get("node") || undefined;
+  const edge = sp.get("edge") || undefined;
+  const path = sp.get("path") || undefined;
+  const node_fail = sp.get("node_fail") || undefined;
+  if (from) f.from = from;
+  if (to) f.to = to;
+  if (node) f.node = node;
+  if (edge) f.edge = edge;
+  if (path) f.path = path;
+  if (node_fail) f.node_fail = node_fail;
   return f;
 }
 
@@ -31,6 +49,12 @@ export function filtersToSearch(f: UiFilters, extra?: Record<string, string | un
   if (f.status) sp.set("status", f.status);
   if (f.sort && f.sort !== "start_desc") sp.set("sort", f.sort);
   if (f.live) sp.set("live", "1");
+  if (f.from) sp.set("from", f.from);
+  if (f.to) sp.set("to", f.to);
+  if (f.node) sp.set("node", f.node);
+  if (f.edge) sp.set("edge", f.edge);
+  if (f.path) sp.set("path", f.path);
+  if (f.node_fail) sp.set("node_fail", f.node_fail);
   if (extra) {
     for (const [k, v] of Object.entries(extra)) {
       if (v) sp.set(k, v);

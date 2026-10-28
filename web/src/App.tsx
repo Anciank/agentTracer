@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useNavigate, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ProjectsPage } from "./components/Projects";
 import { TracesPage } from "./pages/TracesPage";
 import { HelpOverlay } from "./components/HelpOverlay";
 import { AuthGate } from "./components/AuthGate";
+const ProjectMapPage = lazy(() => import("./pages/ProjectMapPage"));
 import { getApiKey } from "./lib/auth";
 import { getApiMode, listProjects, ApiError, mocksAllowed } from "./api/client";
 
@@ -118,6 +119,11 @@ function Shell() {
       </header>
       <Routes>
         <Route path="/" element={<ProjectsPage />} />
+        <Route path="/map/:projectId" element={
+          <Suspense fallback={<div className="page empty">Loading map…</div>}>
+            <ProjectMapPage />
+          </Suspense>
+        } />
         <Route path="/traces" element={<TracesPage />} />
         <Route path="/traces/:traceId" element={<TracesPage />} />
         <Route path="/p/:project" element={<ProjectRedirect />} />

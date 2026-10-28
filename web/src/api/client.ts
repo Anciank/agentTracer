@@ -17,6 +17,10 @@ import type {
   StreamEvent,
   SpanSummary,
   TraceSummary,
+  GraphResponse,
+  GraphParams,
+  PathsResponse,
+  PathsParams,
 } from "./types";
 
 /** True when fixture mocks are allowed (never in a plain production build). */
@@ -132,6 +136,33 @@ export async function getStats(
   }
   const qstr = qs.toString();
   return realFetch(`/api/ui/stats${qstr ? `?${qstr}` : ""}`);
+}
+
+
+export async function getGraph(projectId: string, params: GraphParams = {}): Promise<GraphResponse> {
+  if (import.meta.env.DEV || import.meta.env.VITE_MOCK === "1") {
+    if (useMockMode()) return (await import("./mockClient")).getGraph(projectId, params);
+  }
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
+  }
+  if (!qs.has("window")) qs.set("window", "24h");
+  const qstr = qs.toString();
+  return realFetch(`/api/ui/projects/${encodeURIComponent(projectId)}/graph?${qstr}`);
+}
+
+export async function getPaths(projectId: string, params: PathsParams = {}): Promise<PathsResponse> {
+  if (import.meta.env.DEV || import.meta.env.VITE_MOCK === "1") {
+    if (useMockMode()) return (await import("./mockClient")).getPaths(projectId, params);
+  }
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
+  }
+  if (!qs.has("window")) qs.set("window", "24h");
+  const qstr = qs.toString();
+  return realFetch(`/api/ui/projects/${encodeURIComponent(projectId)}/paths?${qstr}`);
 }
 
 export type StreamHandle = { close: () => void };

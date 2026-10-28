@@ -1,4 +1,4 @@
-import { useMemo, useRef, useEffect } from "react";
+import { useMemo, useRef, useEffect, type CSSProperties } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { SpanSummary } from "../api/types";
 import { indexTree, visibleRows, treeGuides, isOrphanGroupId } from "../lib/tree";
@@ -71,10 +71,39 @@ export function Waterfall({ rows, spanMs, selectedId, folded, onSelect, onToggle
           const kids = tree.get(r.id)?.kids || 0;
           const isFolded = folded.has(r.id);
           const w = r.latency_ms == null ? 0 : Math.max(pct(r.latency_ms), 0.25);
+          const left = pct(r.offset_ms);
           const color = TYPE_COLOR[r.run_type] || "var(--unknown)";
           const barCls = ["bar", r.status === "error" ? "error" : "", r.status === "running" ? "running" : ""]
             .filter(Boolean)
             .join(" ");
+          // Flip token label inside/left of the bar when the right edge is crowded.
+          const rightEdge = left + w;
+          const flipInside = rightEdge > 78;
+          const flipLeft = rightEdge > 92;
+          let tokStyle: CSSProperties;
+          if (r.tokens.total > 0) {
+            if (flipLeft) {
+              tokStyle = {
+                left: `calc(${left}% - 4px)`,
+                transform: "translateX(-100%)",
+                paddingLeft: 0,
+                paddingRight: 5,
+              };
+            } else if (flipInside) {
+              tokStyle = {
+                left: `calc(${left}% + ${w}% - 4px)`,
+                transform: "translateX(-100%)",
+                paddingLeft: 0,
+                paddingRight: 5,
+                color: "rgba(255,255,255,.92)",
+                textShadow: "0 0 2px rgba(0,0,0,.45)",
+              };
+            } else {
+              tokStyle = { left: `calc(${left}% + ${w}% + 4px)` };
+            }
+          } else {
+            tokStyle = {};
+          }
           return (
             <div
               key={r.id}
@@ -119,10 +148,10 @@ export function Waterfall({ rows, spanMs, selectedId, folded, onSelect, onToggle
               <div className="track">
                 <div
                   className={barCls}
-                  style={{ left: `${pct(r.offset_ms)}%`, width: `${w}%`, background: color }}
+                  style={{ left: `${left}%`, width: `${w}%`, background: color }}
                 />
                 {r.tokens.total > 0 && (
-                  <div className="bar-tokens" style={{ left: `calc(${pct(r.offset_ms)}% + ${w}% + 4px)` }}>
+                  <div className="bar-tokens" style={tokStyle}>
                     {fmtInt(r.tokens.total)} tok
                   </div>
                 )}

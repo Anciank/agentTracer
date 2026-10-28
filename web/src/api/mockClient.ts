@@ -13,6 +13,11 @@ import type {
   StreamEvent,
   TraceSummary,
   SpanSummary,
+  GraphResponse,
+  GraphParams,
+  PathsResponse,
+  PathsParams,
+  GraphWindow,
 } from "./types";
 
 function encodeCursor(start: string, traceId: string): string {
@@ -37,6 +42,13 @@ function filterTraces(all: TraceSummary[], params: TraceListParams): TraceSummar
   if (params.min_duration_ms != null) {
     list = list.filter((t) => t.duration_ms != null && t.duration_ms >= params.min_duration_ms!);
   }
+  // M3.5 drill-down (mock): use fixture allow-lists when present.
+  // Dynamic import would be async; callers already await fx() before filter in listTraces —
+  // so we apply id filters via a sync cache filled in listTraces.
+  if (params.node || params.edge || params.path || params.node_fail) {
+    const ids = mockDrillIds(params);
+    if (ids) list = list.filter((t) => ids.has(t.trace_id));
+  }
   const sort = params.sort || "start_desc";
   list.sort((a, b) => {
     if (sort === "duration_desc") return (b.duration_ms || 0) - (a.duration_ms || 0);
@@ -47,12 +59,52 @@ function filterTraces(all: TraceSummary[], params: TraceListParams): TraceSummar
   return list;
 }
 
+
+let _drill: typeof import("../fixtures/graph") | null = null;
+
+function mockDrillIds(params: TraceListParams): Set<string> | null {
+  const map = _drill?.MOCK_FILTER_TRACE_IDS;
+  if (!map) return null;
+  const keys: string[] = [];
+  if (params.node_fail) keys.push(`node_fail:${params.node_fail}`);
+  else if (params.node) keys.push(`node:${params.node}`);
+  if (params.edge) keys.push(`edge:${params.edge}`);
+  if (params.path) keys.push(`path:${params.path}`);
+  const ids = new Set<string>();
+  let hit = false;
+  for (const k of keys) {
+    const arr = map[k];
+    if (arr) {
+      hit = true;
+      for (const id of arr) ids.add(id);
+    }
+  }
+  return hit ? ids : null;
+}
+
+export async function getGraph(projectId: string, params: GraphParams = {}): Promise<GraphResponse> {
+  const g = await import("../fixtures/graph");
+  _drill = g;
+  const w = (params.window || "24h") as GraphWindow;
+  return g.getGraphFixture(projectId, w);
+}
+
+export async function getPaths(projectId: string, params: PathsParams = {}): Promise<PathsResponse> {
+  const g = await import("../fixtures/graph");
+  _drill = g;
+  const w = (params.window || "24h") as GraphWindow;
+  return g.getPathsFixture(projectId, w);
+}
+
 export async function listProjects(): Promise<ProjectCard[]> {
   return (await fx()).PROJECTS;
 }
 
 export async function listTraces(params: TraceListParams = {}): Promise<TraceListResponse> {
   const data = await fx();
+  if (params.node || params.edge || params.path || params.node_fail) {
+    _drill = await import("../fixtures/graph");
+  }
   const all = data.makeManyTraces(10_000);
   const filtered = filterTraces(all, params);
   let start = 0;

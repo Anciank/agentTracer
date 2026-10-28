@@ -57,6 +57,9 @@ export function TracesPage() {
       // clear undefined status explicitly
       if ("status" in patch && patch.status === undefined) delete next.status;
       if ("q" in patch && !patch.q) delete next.q;
+      for (const k of ["node", "edge", "path", "node_fail", "from", "to"] as const) {
+        if (k in patch && !patch[k]) delete next[k];
+      }
       const path = routeTraceId ? `/traces/${routeTraceId}` : "/traces";
       nav(`${path}${filtersToSearch(next)}`);
     },
@@ -226,6 +229,26 @@ export function TracesPage() {
           <option value="errors_desc">Most errors</option>
         </select>
         {filters.project && <span className="chip active">project: {filters.project}</span>}
+        {filters.node && (
+          <button type="button" className="chip active" onClick={() => patchFilters({ node: undefined, node_fail: undefined })}>
+            node: {filters.node} ✕
+          </button>
+        )}
+        {filters.edge && (
+          <button type="button" className="chip active" onClick={() => patchFilters({ edge: undefined })}>
+            edge: {filters.edge} ✕
+          </button>
+        )}
+        {filters.path && (
+          <button type="button" className="chip active" onClick={() => patchFilters({ path: undefined })} title={filters.path}>
+            path ✕
+          </button>
+        )}
+        {filters.node_fail && !filters.node && (
+          <button type="button" className="chip active" onClick={() => patchFilters({ node_fail: undefined })}>
+            fail@{filters.node_fail} ✕
+          </button>
+        )}
         <button
           type="button"
           className={`chip ${filters.live ? "active" : ""}`}

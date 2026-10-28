@@ -52,6 +52,12 @@ export function TraceList({
       status: filters.status,
       sort: filters.sort || "start_desc",
       limit: 100,
+      from: filters.from,
+      to: filters.to,
+      node: filters.node,
+      edge: filters.edge,
+      path: filters.path,
+      node_fail: filters.node_fail,
     }),
     [filters]
   );
@@ -68,7 +74,7 @@ export function TraceList({
 
   useEffect(() => {
     setPending([]);
-  }, [filters.project, filters.q, filters.status, filters.sort]);
+  }, [filters.project, filters.q, filters.status, filters.sort, filters.node, filters.edge, filters.path, filters.node_fail, filters.from, filters.to]);
 
   useEffect(() => {
     if (!filters.live) {
