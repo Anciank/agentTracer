@@ -5,7 +5,8 @@ import { ProjectsPage } from "./components/Projects";
 import { TracesPage } from "./pages/TracesPage";
 import { HelpOverlay } from "./components/HelpOverlay";
 import { AuthGate } from "./components/AuthGate";
-const ProjectMapPage = lazy(() => import("./pages/ProjectMapPage"));
+const ProjectPage = lazy(() => import("./pages/ProjectPage"));
+const MapRedirect = lazy(() => import("./pages/MapRedirect"));
 import { getApiKey } from "./lib/auth";
 import { getApiMode, listProjects, ApiError, mocksAllowed } from "./api/client";
 
@@ -119,9 +120,14 @@ function Shell() {
       </header>
       <Routes>
         <Route path="/" element={<ProjectsPage />} />
+        <Route path="/projects/:projectId" element={
+          <Suspense fallback={<div className="page empty">Loading project…</div>}>
+            <ProjectPage />
+          </Suspense>
+        } />
         <Route path="/map/:projectId" element={
-          <Suspense fallback={<div className="page empty">Loading map…</div>}>
-            <ProjectMapPage />
+          <Suspense fallback={<div className="page empty">Opening map…</div>}>
+            <MapRedirect />
           </Suspense>
         } />
         <Route path="/traces" element={<TracesPage />} />

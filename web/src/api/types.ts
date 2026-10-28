@@ -168,6 +168,8 @@ export type TraceListParams = {
   path?: string;
   /** M3.5 ask: with node, only traces that errored at that node */
   node_fail?: string;
+  /** M3.6: traces containing a run_type=tool with this name */
+  tool?: string;
 };
 
 export type StreamEvent =
@@ -267,4 +269,82 @@ export type PathsParams = {
   from?: string;
   to?: string;
   limit?: number;
+};
+
+
+/** M3.6 Monitor — keep in sync with agentTracer_graph_shapes.md */
+
+export type MonitorBucketSize = "1m" | "1h" | "1d";
+
+export type MonitorParams = {
+  window?: GraphWindow;
+  from?: string;
+  to?: string;
+};
+
+export type TraceBucket = {
+  t: string;
+  t_end: string;
+  success: number;
+  error: number;
+  total: number;
+};
+
+export type LatencyBucket = {
+  t: string;
+  t_end: string;
+  p50_ms: number | null;
+  p99_ms: number | null;
+};
+
+export type TokenBucket = {
+  t: string;
+  t_end: string;
+  input: number;
+  output: number;
+  total: number;
+};
+
+export type ModelRow = {
+  model: string;
+  calls: number;
+  share: number;
+  error_count: number;
+  error_rate: number;
+  p50_ms: number | null;
+  p99_ms: number | null;
+  tokens: Tokens;
+};
+
+export type ToolRow = {
+  tool: string;
+  calls: number;
+  share: number;
+  error_count: number;
+  error_rate: number;
+  p50_ms: number | null;
+  p99_ms: number | null;
+  tokens: Tokens;
+};
+
+export type MonitorResponse = {
+  project_id: string;
+  project: string;
+  window: GraphWindow;
+  from: string;
+  to: string;
+  bucket: MonitorBucketSize;
+  trace_count: number;
+  success_count: number;
+  error_count: number;
+  p50_ms: number | null;
+  p99_ms: number | null;
+  tokens: Tokens;
+  /** Always null in M3.6 — reserved for M6 cost panel */
+  cost: null;
+  series_traces: TraceBucket[];
+  series_latency: LatencyBucket[];
+  series_tokens: TokenBucket[];
+  by_model: ModelRow[];
+  by_tool: ToolRow[];
 };

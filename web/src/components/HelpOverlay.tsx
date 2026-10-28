@@ -17,6 +17,9 @@ export function HelpOverlay({ onClose }: Props) {
             <tr><td><kbd>l</kbd></td><td>toggle live tail</td></tr>
             <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>fold / unfold subtree</td></tr>
             <tr><td><kbd>1</kbd>–<kbd>7</kbd></td><td>detail tabs</td></tr>
+            <tr><td colSpan={2}><strong>Project (Monitor / Map)</strong></td></tr>
+            <tr><td><kbd>1</kbd> / <kbd>m</kbd></td><td>Monitor tab</td></tr>
+            <tr><td><kbd>2</kbd> / <kbd>g</kbd></td><td>Map (graph) tab</td></tr>
             <tr><td colSpan={2}><strong>Agent map</strong></td></tr>
             <tr><td><kbd>/</kbd></td><td>find node by name</td></tr>
             <tr><td><kbd>f</kbd></td><td>fit map to viewport</td></tr>

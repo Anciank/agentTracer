@@ -21,6 +21,8 @@ import type {
   GraphParams,
   PathsResponse,
   PathsParams,
+  MonitorResponse,
+  MonitorParams,
 } from "./types";
 
 /** True when fixture mocks are allowed (never in a plain production build). */
@@ -163,6 +165,56 @@ export async function getPaths(projectId: string, params: PathsParams = {}): Pro
   if (!qs.has("window")) qs.set("window", "24h");
   const qstr = qs.toString();
   return realFetch(`/api/ui/projects/${encodeURIComponent(projectId)}/paths?${qstr}`);
+}
+
+
+export type MonitorFetchResult = {
+  data: MonitorResponse | null;
+  etag: string | null;
+  unchanged: boolean;
+};
+
+export async function getMonitor(
+  projectId: string,
+  params: MonitorParams = {},
+  opts: { etag?: string | null } = {}
+): Promise<MonitorFetchResult> {
+  if (import.meta.env.DEV || import.meta.env.VITE_MOCK === "1") {
+    if (useMockMode()) return (await import("./mockClient")).getMonitor(projectId, params, opts);
+  }
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
+  }
+  if (!qs.has("window")) qs.set("window", "24h");
+  const headers: Record<string, string> = { ...(authHeaders() as Record<string, string>) };
+  if (opts.etag) headers["If-None-Match"] = opts.etag;
+  let res: Response;
+  try {
+    res = await fetch(`/api/ui/projects/${encodeURIComponent(projectId)}/monitor?${qs}`, {
+      headers,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "network error";
+    throw new ApiError(0, msg);
+  }
+  if (res.status === 401) {
+    clearApiKey();
+    throw new ApiError(401, "unauthorized");
+  }
+  if (res.status === 304) {
+    return { data: null, etag: opts.etag || res.headers.get("ETag"), unchanged: true };
+  }
+  if (!res.ok) {
+    let detail = res.statusText || `HTTP ${res.status}`;
+    try {
+      const j = await res.json();
+      if (j?.detail) detail = String(j.detail);
+    } catch { /* ignore */ }
+    throw new ApiError(res.status, detail);
+  }
+  const data = (await res.json()) as MonitorResponse;
+  return { data, etag: res.headers.get("ETag"), unchanged: false };
 }
 
 export type StreamHandle = { close: () => void };

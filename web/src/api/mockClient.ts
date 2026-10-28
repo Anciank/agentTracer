@@ -18,6 +18,8 @@ import type {
   PathsResponse,
   PathsParams,
   GraphWindow,
+  MonitorResponse,
+  MonitorParams,
 } from "./types";
 
 function encodeCursor(start: string, traceId: string): string {
@@ -38,6 +40,8 @@ function filterTraces(all: TraceSummary[], params: TraceListParams): TraceSummar
     list = list.filter((t) => t.name.toLowerCase().includes(q));
   }
   if (params.model) list = list.filter((t) => t.model === params.model);
+  // tool filter is server-side in real API; mock keeps all (deep-link smoke)
+  void params.tool;
   if (params.min_tokens != null) list = list.filter((t) => t.tokens.total >= params.min_tokens!);
   if (params.min_duration_ms != null) {
     list = list.filter((t) => t.duration_ms != null && t.duration_ms >= params.min_duration_ms!);
@@ -282,4 +286,26 @@ export function openTraceStream(
       clearInterval(tick);
     },
   };
+}
+
+
+export type MonitorFetchResult = {
+  data: MonitorResponse | null;
+  etag: string | null;
+  unchanged: boolean;
+};
+
+export async function getMonitor(
+  projectId: string,
+  params: MonitorParams = {},
+  opts: { etag?: string | null } = {}
+): Promise<MonitorFetchResult> {
+  const m = await import("../fixtures/monitor");
+  const w = (params.window || "24h") as GraphWindow;
+  const data = m.getMonitorFixture(projectId, w);
+  const etag = m.monitorEtag(data);
+  if (opts.etag && opts.etag === etag) {
+    return { data: null, etag, unchanged: true };
+  }
+  return { data, etag, unchanged: false };
 }

@@ -77,7 +77,7 @@ export function TraceList({
 
   useEffect(() => {
     setPending([]);
-  }, [filters.project, filters.q, filters.status, filters.sort, filters.node, filters.edge, filters.path, filters.node_fail, filters.from, filters.to]);
+  }, [filters.project, filters.q, filters.status, filters.sort, filters.node, filters.edge, filters.path, filters.node_fail, filters.from, filters.to, filters.model, filters.tool]);
 
   useEffect(() => {
     if (!filters.live) {

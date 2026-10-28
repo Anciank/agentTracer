@@ -12,6 +12,8 @@ export type UiFilters = {
   edge?: string;
   path?: string;
   node_fail?: string;
+  model?: string;
+  tool?: string;
 };
 
 export function filtersFromSearch(sp: URLSearchParams): UiFilters {
@@ -33,12 +35,16 @@ export function filtersFromSearch(sp: URLSearchParams): UiFilters {
   const edge = sp.get("edge") || undefined;
   const path = sp.get("path") || undefined;
   const node_fail = sp.get("node_fail") || undefined;
+  const model = sp.get("model") || undefined;
+  const tool = sp.get("tool") || undefined;
   if (from) f.from = from;
   if (to) f.to = to;
   if (node) f.node = node;
   if (edge) f.edge = edge;
   if (path) f.path = path;
   if (node_fail) f.node_fail = node_fail;
+  if (model) f.model = model;
+  if (tool) f.tool = tool;
   return f;
 }
 
@@ -55,6 +61,8 @@ export function filtersToSearch(f: UiFilters, extra?: Record<string, string | un
   if (f.edge) sp.set("edge", f.edge);
   if (f.path) sp.set("path", f.path);
   if (f.node_fail) sp.set("node_fail", f.node_fail);
+  if (f.model) sp.set("model", f.model);
+  if (f.tool) sp.set("tool", f.tool);
   if (extra) {
     for (const [k, v] of Object.entries(extra)) {
       if (v) sp.set(k, v);

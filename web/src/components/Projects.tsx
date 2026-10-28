@@ -34,11 +34,11 @@ export function ProjectsPage() {
             key={p.id}
             type="button"
             className="card"
-            onClick={() => nav(`/map/${encodeURIComponent(p.name)}?window=24h`)}
+onClick={() => nav(`/projects/${encodeURIComponent(p.name)}?window=24h`)}
           >
             <h3>{p.name}</h3>
             <div className="meta">
-              <div className="hint" style={{ marginBottom: 4 }}>Agent map →</div>
+              <div className="hint" style={{ marginBottom: 4 }}>Monitor →</div>
               <div>
                 <b>{fmtInt(p.trace_count_24h)}</b> traces / 24h · <b>{fmtInt(p.trace_count_7d)}</b> / 7d
               </div>

@@ -11,13 +11,21 @@ import { isMapEndpointMissing } from "../lib/mapStatus";
 
 const WINDOWS: GraphWindow[] = ["1h", "24h", "7d"];
 
-export default function ProjectMapPage() {
-  const { projectId = "" } = useParams();
+type Props = {
+  /** When true, ProjectPage owns crumbs / window / tabs. */
+  embedded?: boolean;
+  projectIdProp?: string;
+  windowProp?: GraphWindow;
+};
+
+export default function ProjectMapPage({ embedded, projectIdProp, windowProp }: Props = {}) {
+  const params = useParams();
+  const projectId = projectIdProp || params.projectId || "";
   const [sp, setSp] = useSearchParams();
   const nav = useNavigate();
   const findRef = useRef<HTMLInputElement>(null);
 
-  const windowParam = (sp.get("window") as GraphWindow) || "24h";
+  const windowParam = windowProp || (sp.get("window") as GraphWindow) || "24h";
   const win: GraphWindow = WINDOWS.includes(windowParam) ? windowParam : "24h";
   const showHidden = sp.get("rare") === "1";
   const expandOther = sp.get("expand") === "1";
@@ -77,7 +85,6 @@ export default function ProjectMapPage() {
 
   const onNodeClick = (key: string, stats: NodeStats) => {
     if (stats.error_count > 0 && key) {
-      // Prefer failed-at filter when node is failing; still pass node.
       drill({ node: key, node_fail: key });
     } else {
       drill({ node: key });
@@ -121,7 +128,7 @@ export default function ProjectMapPage() {
   if (graphQ.isError) {
     if (isMapEndpointMissing(graphQ.error)) {
       return (
-        <div className="page">
+        <div className={embedded ? "" : "page"}>
           <div className="map-unsupported" role="status">
             <h2>The agent map needs a server update</h2>
             <p>
@@ -137,7 +144,7 @@ export default function ProjectMapPage() {
       );
     }
     return (
-      <div className="page">
+      <div className={embedded ? "" : "page"}>
         <ErrorState error={graphQ.error} onRetry={() => void graphQ.refetch()} title="Failed to load graph" />
       </div>
     );
@@ -148,30 +155,49 @@ export default function ProjectMapPage() {
   const mode = inferGraphMode(graph.nodes);
 
   return (
-    <div className="page map-page">
-      <div className="map-header">
-        <div>
-          <div className="map-crumbs">
-            <Link to="/">Projects</Link>
-            <span> / </span>
-            <strong>{graph.project}</strong>
-            <span className="map-mode"> · {mode}</span>
+    <div className={embedded ? "map-page map-embedded" : "page map-page"}>
+      {!embedded && (
+        <div className="map-header">
+          <div>
+            <div className="map-crumbs">
+              <Link to="/">Projects</Link>
+              <span> / </span>
+              <strong>{graph.project}</strong>
+              <span className="map-mode"> · {mode}</span>
+            </div>
+            <h2 style={{ margin: "4px 0 0" }}>Agent map</h2>
           </div>
-          <h2 style={{ margin: "4px 0 0" }}>Agent map</h2>
-        </div>
-        <div className="map-controls">
-          <div className="seg">
-            {WINDOWS.map((w) => (
-              <button
-                key={w}
-                type="button"
-                className={`chip ${win === w ? "active" : ""}`}
-                onClick={() => setWindow(w)}
-              >
-                {w}
+          <div className="map-controls">
+            <div className="seg">
+              {WINDOWS.map((w) => (
+                <button
+                  key={w}
+                  type="button"
+                  className={`chip ${win === w ? "active" : ""}`}
+                  onClick={() => setWindow(w)}
+                >
+                  {w}
+                </button>
+              ))}
+            </div>
+            <button type="button" className={`chip ${showHidden ? "active" : ""}`} onClick={toggleRare}>
+              Rare edges (&lt;1%)
+            </button>
+            {otherNode && (
+              <button type="button" className={`chip ${expandOther ? "active" : ""}`} onClick={toggleExpand}>
+                {expandOther ? "Fold" : otherNode.label}
               </button>
-            ))}
+            )}
+            <Link className="chip" to={`/traces?project=${encodeURIComponent(graph.project)}`}>
+              All traces
+            </Link>
           </div>
+        </div>
+      )}
+
+      {embedded && (
+        <div className="map-controls" style={{ marginBottom: 8 }}>
+          <span className="map-mode">mode · {mode}</span>
           <button type="button" className={`chip ${showHidden ? "active" : ""}`} onClick={toggleRare}>
             Rare edges (&lt;1%)
           </button>
@@ -180,11 +206,8 @@ export default function ProjectMapPage() {
               {expandOther ? "Fold" : otherNode.label}
             </button>
           )}
-          <Link className="chip" to={`/traces?project=${encodeURIComponent(graph.project)}`}>
-            All traces
-          </Link>
         </div>
-      </div>
+      )}
 
       <div className="map-body">
         <AgentMap
@@ -212,9 +235,7 @@ export default function ProjectMapPage() {
             {paths.map((p) => (
               <li key={p.fingerprint}>
                 <button type="button" className="path-row" onClick={() => onPathClick(p)}>
-                  <div className="path-label">
-                    {p.label}
-                  </div>
+                  <div className="path-label">{p.label}</div>
                   <div className="path-meta">
                     {fmtInt(p.count)} runs · {fmtPct(p.share)} · err {fmtPct(p.error_rate)}
                   </div>

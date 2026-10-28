@@ -57,7 +57,7 @@ export function TracesPage() {
       // clear undefined status explicitly
       if ("status" in patch && patch.status === undefined) delete next.status;
       if ("q" in patch && !patch.q) delete next.q;
-      for (const k of ["node", "edge", "path", "node_fail", "from", "to"] as const) {
+      for (const k of ["node", "edge", "path", "node_fail", "from", "to", "model", "tool"] as const) {
         if (k in patch && !patch[k]) delete next[k];
       }
       const path = routeTraceId ? `/traces/${routeTraceId}` : "/traces";
@@ -247,6 +247,16 @@ export function TracesPage() {
         {filters.node_fail && !filters.node && (
           <button type="button" className="chip active" onClick={() => patchFilters({ node_fail: undefined })}>
             fail@{filters.node_fail} ✕
+          </button>
+        )}
+        {filters.model && (
+          <button type="button" className="chip active" onClick={() => patchFilters({ model: undefined })}>
+            model: {filters.model} ✕
+          </button>
+        )}
+        {filters.tool && (
+          <button type="button" className="chip active" onClick={() => patchFilters({ tool: undefined })}>
+            tool: {filters.tool} ✕
           </button>
         )}
         <button
