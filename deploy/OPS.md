@@ -91,6 +91,11 @@ test stacks on :1985 plus a prod deploy will OOM. Guards:
   resolves `_s3` cold pointers), then force-recreates with the env cleared. Prefer this over a SQL migration
   because preview extraction is Go (`chatPreviewsFromIO`) and may need the blob store.
 
+- **Thread id backfill** (migration `012` columns null on legacy roots): same one-shot pattern —
+  `./deploy/deploy.sh --backfill-thread-ids` or `AGENTTRACER_DEPLOY_BACKFILL_THREAD_IDS=1`.
+  Starts once with `AGENTTRACER_BACKFILL_THREAD_IDS=1`, runs `BackfillThreadIDs` (batched, idempotent;
+  digs `extra.metadata.thread_id` then `extra.metadata.session_id`), then force-recreates with the env cleared.
+
 ## Resource limits (prod compose)
 - postgres 512m, minio 256m, app 384m (+ GOMEMLIMIT 300MiB). Leaves room for one :1985 test stack.
 

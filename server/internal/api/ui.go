@@ -30,6 +30,8 @@ func (s *Server) routesUI() {
 	s.mux.HandleFunc("GET /api/ui/projects/{id}/graph", s.apiUIGraph)
 	s.mux.HandleFunc("GET /api/ui/projects/{id}/paths", s.apiUIPaths)
 	s.mux.HandleFunc("GET /api/ui/projects/{id}/monitor", s.apiUIMonitor)
+	s.mux.HandleFunc("GET /api/ui/threads", s.apiUIThreads)
+	s.mux.HandleFunc("GET /api/ui/threads/{id}", s.apiUIThread)
 }
 
 func (s *Server) apiUIProjects(w http.ResponseWriter, r *http.Request) {
@@ -139,6 +141,78 @@ func (s *Server) apiUITraces(w http.ResponseWriter, r *http.Request) {
 		nextAny = next
 	}
 	writeJSON(w, 200, map[string]any{"traces": list, "next_cursor": nextAny})
+}
+
+func (s *Server) apiUIThreads(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	opts := store.ThreadListOpts{Project: q.Get("project")}
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 200 {
+			writeJSON(w, 422, map[string]any{"detail": "limit must be 1..200"})
+			return
+		}
+		opts.Limit = n
+	}
+	if c := q.Get("cursor"); c != "" {
+		st, tid, err := store.DecodeCursor(c)
+		if err != nil {
+			writeJSON(w, 422, map[string]any{"detail": "invalid cursor"})
+			return
+		}
+		opts.CursorStart = &st
+		opts.CursorID = tid
+	}
+	list, next, err := s.store.UIListThreads(r.Context(), opts)
+	if err != nil {
+		writeJSON(w, 500, map[string]any{"detail": err.Error()})
+		return
+	}
+	var nextAny any
+	if next != "" {
+		nextAny = next
+	}
+	writeJSON(w, 200, map[string]any{"threads": list, "next_cursor": nextAny})
+}
+
+func (s *Server) apiUIThread(w http.ResponseWriter, r *http.Request) {
+	threadID := r.PathValue("id")
+	if threadID == "" {
+		writeJSON(w, 422, map[string]any{"detail": "thread id required"})
+		return
+	}
+	q := r.URL.Query()
+	project := q.Get("project")
+	limit := 50
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 200 {
+			writeJSON(w, 422, map[string]any{"detail": "limit must be 1..200"})
+			return
+		}
+		limit = n
+	}
+	var cursorStart *time.Time
+	var cursorTraceID string
+	if c := q.Get("cursor"); c != "" {
+		st, tid, err := store.DecodeCursor(c)
+		if err != nil {
+			writeJSON(w, 422, map[string]any{"detail": "invalid cursor"})
+			return
+		}
+		cursorStart = &st
+		cursorTraceID = tid
+	}
+	list, next, err := s.store.UIListThreadTraces(r.Context(), project, threadID, limit, cursorStart, cursorTraceID)
+	if err != nil {
+		writeJSON(w, 500, map[string]any{"detail": err.Error()})
+		return
+	}
+	var nextAny any
+	if next != "" {
+		nextAny = next
+	}
+	writeJSON(w, 200, map[string]any{"thread_id": threadID, "traces": list, "next_cursor": nextAny})
 }
 
 func (s *Server) apiUITraceSummary(w http.ResponseWriter, r *http.Request) {

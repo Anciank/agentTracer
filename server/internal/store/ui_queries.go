@@ -28,6 +28,9 @@ type TraceListOpts struct {
 	Limit         int
 	CursorStart   *time.Time
 	CursorTraceID string
+	// ThreadID, when set, restricts to roots with that denormalized thread_id
+	// (used by GET /api/ui/threads/{id}).
+	ThreadID string
 	// M3.5 Agent-map filters (compose with existing; apply after root fetch).
 	Node     string // node_key exact
 	NodeFail string // node_key that must have an error visit
@@ -190,6 +193,11 @@ func (s *Store) UIListTraces(ctx context.Context, opts TraceListOpts) ([]map[str
 		args = append(args, opts.Project)
 		n++
 	}
+	if opts.ThreadID != "" {
+		where = append(where, fmt.Sprintf("r.thread_id=$%d", n))
+		args = append(args, opts.ThreadID)
+		n++
+	}
 	if opts.From != nil {
 		where = append(where, fmt.Sprintf("r.start_time >= $%d", n))
 		args = append(args, *opts.From)
@@ -236,8 +244,12 @@ func (s *Store) UIListTraces(ctx context.Context, opts TraceListOpts) ([]map[str
 		where = append(where, "NOT "+TraceFailedExistsSQL("r.trace_id"))
 	}
 	if opts.CursorStart != nil && opts.CursorTraceID != "" {
+		cmp := "<"
+		if opts.Sort == "start_asc" {
+			cmp = ">"
+		}
 		where = append(where, fmt.Sprintf(
-			`(r.start_time, r.trace_id) < ($%d::timestamptz, $%d::uuid)`, n, n+1))
+			`(r.start_time, r.trace_id) %s ($%d::timestamptz, $%d::uuid)`, cmp, n, n+1))
 		args = append(args, *opts.CursorStart, opts.CursorTraceID)
 		n += 2
 	}
@@ -249,6 +261,8 @@ func (s *Store) UIListTraces(ctx context.Context, opts TraceListOpts) ([]map[str
 
 	order := "r.start_time DESC NULLS LAST, r.trace_id DESC"
 	switch opts.Sort {
+	case "start_asc":
+		order = "r.start_time ASC NULLS LAST, r.trace_id ASC"
 	case "duration_desc":
 		order = "(EXTRACT(EPOCH FROM (r.end_time-r.start_time))) DESC NULLS LAST, r.trace_id DESC"
 	case "tokens_desc":

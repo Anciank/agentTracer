@@ -73,6 +73,14 @@ func main() {
 			log.Printf("chat preview backfill wrote %d traces (%d failed, scanned %d)", wrote, failed, scanned)
 		}
 	}
+	if os.Getenv("AGENTTRACER_BACKFILL_THREAD_IDS") == "1" {
+		wrote, failed, scanned, err := st.BackfillThreadIDs(ctx, 0)
+		if err != nil {
+			log.Printf("thread_id backfill: list error: %v (continuing)", err)
+		} else {
+			log.Printf("thread_id backfill wrote %d roots (%d failed, scanned %d)", wrote, failed, scanned)
+		}
+	}
 	srv := api.New(cfg, st)
 	handler := api.LogRequests(srv.Handler())
 

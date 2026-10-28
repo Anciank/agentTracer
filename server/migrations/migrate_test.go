@@ -60,7 +60,12 @@ func tableExistsPublic(t *testing.T, pool *pgxpool.Pool, name string) bool {
 	return exists
 }
 
-var wantAll = []string{"001_init", "002_run_metrics", "003_langgraph", "004_agent_map", "005_trace_graph_cache", "006_graph_cache_lat_sentinel", "007_monitor_indexes", "008_monitor_covering_indexes", "009_trace_failed_index", "010_list_previews"}
+// wantPrefix is the known contiguous prefix through 010. Migration 011 may or may
+// not exist yet (M4); 012_thread_ids must always be present after Up. assertVersions
+// only checks this prefix so tests pass whether or not 011 is on the branch.
+var wantPrefix = []string{"001_init", "002_run_metrics", "003_langgraph", "004_agent_map", "005_trace_graph_cache", "006_graph_cache_lat_sentinel", "007_monitor_indexes", "008_monitor_covering_indexes", "009_trace_failed_index", "010_list_previews"}
+
+const wantThreadMig = "012_thread_ids"
 
 func assertVersions(t *testing.T, versions, want []string) {
 	t.Helper()
@@ -71,6 +76,44 @@ func assertVersions(t *testing.T, versions, want []string) {
 		if versions[i] != w {
 			t.Fatalf("versions[%d]=%v want %v (all=%v)", i, versions[i], w, versions)
 		}
+	}
+}
+
+func assertHasVersion(t *testing.T, versions []string, want string) {
+	t.Helper()
+	for _, v := range versions {
+		if v == want {
+			return
+		}
+	}
+	t.Fatalf("missing version %q in %v", want, versions)
+}
+
+func assertMigrationsShape(t *testing.T, versions []string) {
+	t.Helper()
+	assertVersions(t, versions, wantPrefix)
+	assertHasVersion(t, versions, wantThreadMig)
+	// If 011 is present it must sit between 010 and 012.
+	idx010, idx011, idx012 := -1, -1, -1
+	for i, v := range versions {
+		switch v {
+		case "010_list_previews":
+			idx010 = i
+		case "011_cold_tier", "011_cold_storage", "011_m4_cold_tier":
+			idx011 = i
+		case wantThreadMig:
+			idx012 = i
+		default:
+			if len(v) >= 3 && v[:3] == "011" {
+				idx011 = i
+			}
+		}
+	}
+	if idx012 < 0 {
+		t.Fatalf("012 missing")
+	}
+	if idx011 >= 0 && !(idx010 < idx011 && idx011 < idx012) {
+		t.Fatalf("011 must be between 010 and 012: %v", versions)
 	}
 }
 
@@ -91,7 +134,7 @@ func TestUpFreshAndIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertVersions(t, versions, wantAll)
+	assertMigrationsShape(t, versions)
 	if !tableExistsPublic(t, pool, "trace_graph_cache") {
 		t.Fatal("005 did not create trace_graph_cache")
 	}
@@ -135,7 +178,7 @@ func TestUpBootstrapProdDumpNoOp004(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertVersions(t, versions, wantAll)
+	assertMigrationsShape(t, versions)
 	if !tableExistsPublic(t, pool, "trace_graph_cache") {
 		t.Fatal("005 did not create trace_graph_cache")
 	}
@@ -174,7 +217,7 @@ func TestUpBootstrapFrom003ThenRuns004(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertVersions(t, versions, wantAll)
+	assertMigrationsShape(t, versions)
 	for _, idx := range []string{
 		"idx_runs_session_root_start",
 		"idx_runs_session_fingerprint",
@@ -190,7 +233,7 @@ func TestUpBootstrapFrom003ThenRuns004(t *testing.T) {
 	}
 }
 
-func TestListSQLIncludes005Through009(t *testing.T) {
+func TestListSQLIncludes005Through012(t *testing.T) {
 	files, err := listSQL()
 	if err != nil {
 		t.Fatal(err)
@@ -201,6 +244,8 @@ func TestListSQLIncludes005Through009(t *testing.T) {
 		"007_monitor_indexes.sql":          false,
 		"008_monitor_covering_indexes.sql": false,
 		"009_trace_failed_index.sql":       false,
+		"010_list_previews.sql":            false,
+		"012_thread_ids.sql":               false,
 	}
 	for _, f := range files {
 		if _, ok := want[f]; ok {

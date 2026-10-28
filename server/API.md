@@ -153,6 +153,74 @@ Summary rows only. Keyset pagination.
 
 ---
 
+
+### `GET /api/ui/threads`
+Conversation threads grouped by denormalized root `runs.thread_id` (from `extra.metadata.thread_id`,
+falling back to `extra.metadata.session_id`). Roots with neither key are **hidden**.
+`runs.session_id` (LangSmith project UUID) is never used as a thread key.
+
+**Query params**
+
+| Param | Type | Notes |
+| --- | --- | --- |
+| `project` | string | Session/project **name**. Omit = all. |
+| `limit` | int | 1..200, default 50. |
+| `cursor` | string | Opaque keyset from prior `next_cursor` (`last_activity`, `thread_id`). |
+
+**Response** `200`:
+```json
+{
+  "threads": [
+    {
+      "thread_id": "conv-abc",
+      "thread_key_source": "thread_id",
+      "turn_count": 3,
+      "error_count": 1,
+      "status": "success",
+      "project": "demo",
+      "first_activity": "2026-10-28T12:00:00Z",
+      "last_activity": "2026-10-28T12:05:00Z",
+      "first_user_preview": "hello",
+      "last_ai_preview": "hi there"
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+Field notes:
+- `thread_key_source`: `"thread_id"` or `"session_id"` (which metadata key produced `thread_id`).
+- `status`: derived from the **latest root turn only** (`error` \| `running` \| `stale` \| `success`), same any-run-error + stale rules as TraceSummary.
+- `error_count`: count of failed root turns across the whole thread (any-run-error). Independent of `status`.
+- `first_user_preview` / `last_ai_preview`: from the latest root turn (may be `null`).
+
+Legacy roots (null `thread_id` after migration `012`) are filled by the one-shot
+`AGENTTRACER_BACKFILL_THREAD_IDS=1` startup backfill (batched, idempotent).
+
+---
+
+### `GET /api/ui/threads/{id}`
+Trace list for one conversation thread, oldest turn first (`sort=start_asc`).
+
+**Query params**
+
+| Param | Type | Notes |
+| --- | --- | --- |
+| `project` | string | Session/project **name**. Recommended. |
+| `limit` | int | 1..200, default 50. |
+| `cursor` | string | Opaque keyset from prior `next_cursor`. |
+
+**Response** `200`:
+```json
+{
+  "thread_id": "conv-abc",
+  "traces": [ /* TraceSummary, oldest first */ ],
+  "next_cursor": null
+}
+```
+
+---
+
 ### `GET /api/ui/traces/{traceId}/summary`
 Waterfall + tree data without payloads.
 
@@ -489,3 +557,4 @@ Counters are exposed on LangSmith-compat **`GET /info`** as:
 
 ---
 - **list chat previews:** TraceSummary gains `first_user_preview` and `last_ai_preview` (`string|null`, ≤120 UTF-8 bytes).
+- **thread view:** `GET /api/ui/threads` + `GET /api/ui/threads/{id}`; denorm `runs.thread_id` / `thread_key_source` (migration `012`); status from latest turn; `AGENTTRACER_BACKFILL_THREAD_IDS=1`.

@@ -495,6 +495,11 @@ func (s *Store) UpsertRun(ctx context.Context, payload map[string]any, op string
 	merged["tags"] = textsafe.Sanitize(merged["tags"])
 
 	firstUserPrev, lastAIPrev := chatPreviewsFromIO(merged["inputs"], merged["outputs"])
+	// Conversation thread key: roots only, from extra.metadata (never runs.session_id).
+	var threadID, threadKeySource *string
+	if parentID == nil {
+		threadID, threadKeySource = resolveThreadKey(merged)
+	}
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO runs (
 			id, name, run_type, session_id, parent_run_id, dotted_order, trace_id,
@@ -503,9 +508,10 @@ func (s *Store) UpsertRun(ctx context.Context, payload map[string]any, op string
 			input_tokens, output_tokens, total_tokens, model,
 			langgraph_node, langgraph_step,
 			first_user_preview, last_ai_preview,
+			thread_id, thread_key_source,
 			created_at, updated_at
 		) VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,now(),now()
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,now(),now()
 		)
 		ON CONFLICT (id) DO UPDATE SET
 			name=EXCLUDED.name,
@@ -539,6 +545,8 @@ func (s *Store) UpsertRun(ctx context.Context, payload map[string]any, op string
 			langgraph_step=COALESCE(EXCLUDED.langgraph_step, runs.langgraph_step),
 			first_user_preview=CASE WHEN EXCLUDED.first_user_preview='' THEN runs.first_user_preview ELSE EXCLUDED.first_user_preview END,
 			last_ai_preview=CASE WHEN EXCLUDED.last_ai_preview='' THEN runs.last_ai_preview ELSE EXCLUDED.last_ai_preview END,
+			thread_id=COALESCE(EXCLUDED.thread_id, runs.thread_id),
+			thread_key_source=COALESCE(EXCLUDED.thread_key_source, runs.thread_key_source),
 			updated_at=now()`,
 		*runID, name, runType, sessionID, parentID, dotted, traceID,
 		start, end, status, errorStr,
@@ -548,6 +556,7 @@ func (s *Store) UpsertRun(ctx context.Context, payload map[string]any, op string
 		inTok, outTok, totTok, modelName,
 		lgNode, lgStep,
 		firstUserPrev, lastAIPrev,
+		threadID, threadKeySource,
 	)
 	if err != nil {
 		return err

@@ -29,6 +29,7 @@ SKIP_PREFLIGHT="${AGENTTRACER_SKIP_PREFLIGHT:-0}"
 # One-shot post-migrate: start once with AGENTTRACER_BACKFILL_GRAPH_CACHE=1, then clear.
 BACKFILL_GRAPH_CACHE="${AGENTTRACER_DEPLOY_BACKFILL_GRAPH_CACHE:-0}"
 BACKFILL_CHAT_PREVIEWS="${AGENTTRACER_DEPLOY_BACKFILL_CHAT_PREVIEWS:-0}"
+BACKFILL_THREAD_IDS="${AGENTTRACER_DEPLOY_BACKFILL_THREAD_IDS:-0}"
 FORCE_WITH_TEST_STACK=0
 CHECK_ONLY=0
 DEPLOY_SHA="${AGENTTRACER_DEPLOY_SHA:-}"
@@ -40,6 +41,7 @@ while [[ $# -gt 0 ]]; do
     --skip-preflight) SKIP_PREFLIGHT=1; shift ;;
     --backfill-graph-cache) BACKFILL_GRAPH_CACHE=1; shift ;;
     --backfill-chat-previews) BACKFILL_CHAT_PREVIEWS=1; shift ;;
+    --backfill-thread-ids) BACKFILL_THREAD_IDS=1; shift ;;
     --force-with-test-stack) FORCE_WITH_TEST_STACK=1; shift ;;
     --check-only|--preflight-only) CHECK_ONLY=1; shift ;;
     --sha)
@@ -262,6 +264,31 @@ if [[ "$BACKFILL_CHAT_PREVIEWS" == "1" ]]; then
   AGENTTRACER_BACKFILL_CHAT_PREVIEWS= compose up -d --no-deps --force-recreate app
   if ! wait_health "post-chat-preview-backfill clear"; then
     rollback_app "health check (after clearing chat-preview backfill env)"
+  fi
+fi
+
+
+# Optional one-shot thread_id backfill (same pattern as chat-preview).
+if [[ "$BACKFILL_THREAD_IDS" == "1" ]]; then
+  echo "[deploy] one-shot thread_id backfill start (AGENTTRACER_BACKFILL_THREAD_IDS=1)"
+  AGENTTRACER_BACKFILL_THREAD_IDS=1 compose up -d --no-deps --force-recreate app
+  if ! wait_health "thread_id backfill start"; then
+    rollback_app "health check (during thread_id backfill start)"
+  fi
+  APP_CID_TH="$(compose ps -q app 2>/dev/null || true)"
+  if [[ -n "$APP_CID_TH" ]]; then
+    for i in $(seq 1 120); do
+      if docker logs "$APP_CID_TH" 2>&1 | grep -q 'thread_id backfill wrote'; then
+        echo "[deploy] thread_id backfill log observed after ${i}s"
+        break
+      fi
+      sleep 1
+    done
+  fi
+  echo "[deploy] clearing AGENTTRACER_BACKFILL_THREAD_IDS and recreating app (steady state)"
+  AGENTTRACER_BACKFILL_THREAD_IDS= compose up -d --no-deps --force-recreate app
+  if ! wait_health "post-thread_id-backfill clear"; then
+    rollback_app "health check (after clearing thread_id backfill env)"
   fi
 fi
 
