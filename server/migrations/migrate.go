@@ -18,7 +18,6 @@ var bootstrapBaseline = []string{
 	"001_init",
 	"002_run_metrics",
 	"003_langgraph",
-	"004_agent_map",
 }
 
 const ensureTableSQL = `

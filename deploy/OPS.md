@@ -2,7 +2,7 @@
 
 ## Migrations
 - Runner: `migrations.Up` — advisory lock, per-file transaction, `schema_migrations` table.
-- Bootstrap: empty `schema_migrations` + existing `runs` → mark `001`–`004` applied without re-exec.
+- Bootstrap: empty `schema_migrations` + existing `runs` → mark `001`–`003` applied without re-exec; `004+` still run (004 is IF NOT EXISTS).
 - Destructive SQL (`DROP COLUMN`, `ALTER … TYPE`, `DROP TABLE`, `TRUNCATE`, `RENAME COLUMN`) rejected unless file contains `-- agenttracer:expand-contract`.
 
 ## Backups (VPS-local for now — no offsite yet)
