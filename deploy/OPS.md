@@ -12,8 +12,12 @@
 - Cron: see `deploy/crontab.example` — **do not install without TechLeadBro approval**.
 
 ## Deploy
-- `deploy/deploy.sh`: backup → ff-only pull → build → `up -d --no-deps app` → health → rollback image on failure.
+- `deploy/deploy.sh`: backup → ff-only pull → `compose pull` pinned images → `preflight.sh` → build → `up -d --no-deps app` → health → `startup_check.sh` → rollback app image on failure.
 - Never `down -v` on prod (`agenttracer` / :1984).
+- Third-party images are digest-pinned in `docker-compose.yml` / `deploy/docker-compose.at-*.yml` (never `:latest`). App builds as `agenttracer-app:local` only.
+- Read-only prod check: `AGENTTRACER_COMPOSE_PROJECT=agenttracer ./deploy/preflight.sh`
+- Negative :1985 demo (after handoff, do not run on prod):
+  `AGENTTRACER_TAKEOVER_1985=1 ./deploy/preflight_negative_1985.sh`
 
 ## Resource limits (prod compose)
 - postgres 512m, minio 256m, app 384m (+ GOMEMLIMIT 300MiB). Leaves room for one :1985 test stack.

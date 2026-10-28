@@ -2,7 +2,7 @@
 # Note: upstream minio/minio was removed from Docker Hub; pgsty/silo is S3/MINIO_* compatible.
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
     mem_limit: 512m
     environment:
       POSTGRES_USER: agenttracer
@@ -28,7 +28,7 @@ services:
     restart: unless-stopped
 
   minio:
-    image: docker.io/pgsty/silo:RELEASE.2026-10-26T00-00-00Z
+    image: docker.io/pgsty/silo:RELEASE.2026-10-26T00-00-00Z@sha256:7bb2aff6b89efe1cb1303c10fc21d579447434ed06649ac9ec05a5e2dbf30ad7
     mem_limit: 256m
     command: server /data --console-address ":9001"
     environment:
@@ -39,7 +39,7 @@ services:
     restart: unless-stopped
 
   app:
-    # Explicit local name — never pgsty/silo — so build/rollback cannot retag third-party images.
+    # Explicit local name — never pgsty/silo, postgres, or :latest — so build/rollback cannot retag third-party images.
     image: agenttracer-app:local
     build:
       context: .
@@ -59,6 +59,8 @@ services:
       AGENTTRACER_S3_PATH_STYLE: "true"
       AGENTTRACER_HOT_RETENTION_DAYS: "14"
       AGENTTRACER_COLD_RETENTION_DAYS: "180"
+      # One-shot post-migrate backfill; leave unset/empty in steady state (see deploy --backfill-graph-cache).
+      AGENTTRACER_BACKFILL_GRAPH_CACHE: ${AGENTTRACER_BACKFILL_GRAPH_CACHE:-}
     volumes:
       - ./secrets/api_key:/run/secrets/api_key:ro
     depends_on:

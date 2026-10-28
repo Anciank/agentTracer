@@ -9,10 +9,11 @@ services:
     mem_limit: 512m
   minio:
     container_name: at-m3-minio
-    image: docker.io/pgsty/silo:RELEASE.2026-10-26T00-00-00Z
+    image: docker.io/pgsty/silo:RELEASE.2026-10-26T00-00-00Z@sha256:7bb2aff6b89efe1cb1303c10fc21d579447434ed06649ac9ec05a5e2dbf30ad7
     mem_limit: 256m
   app:
     container_name: at-m3-app
+    image: agenttracer-app:local
     build:
       context: .
       dockerfile: deploy/Dockerfile.prebuilt

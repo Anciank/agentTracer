@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Prod-safe deploy for agentTracer.
-# Steps: pre-deploy backup → ff-only pull → build → migrate (via app start) → health → rollback image on failure.
+# Steps: pre-deploy backup → ff-only pull → pull pinned images → preflight →
+#        build → up app → health → startup identity check → rollback on failure.
 # NEVER runs `down -v` on prod. Test with AGENTTRACER_COMPOSE_PROJECT=at-m2 and override files on :1985.
 set -euo pipefail
 
@@ -18,11 +19,13 @@ HEALTH_URL="${AGENTTRACER_HEALTH_URL:-http://127.0.0.1:1984/health}"
 HEALTH_RETRIES="${AGENTTRACER_HEALTH_RETRIES:-30}"
 SKIP_PULL="${AGENTTRACER_SKIP_PULL:-0}"
 SKIP_BACKUP="${AGENTTRACER_SKIP_BACKUP:-0}"
+SKIP_PREFLIGHT="${AGENTTRACER_SKIP_PREFLIGHT:-0}"
 
 for arg in "$@"; do
   case "$arg" in
     --skip-pull) SKIP_PULL=1 ;;
     --skip-backup) SKIP_BACKUP=1 ;;
+    --skip-preflight) SKIP_PREFLIGHT=1 ;;
     --allow-down-v) echo "ERROR: --allow-down-v refused; never down -v on deploy" >&2; exit 2 ;;
     *) echo "unknown arg: $arg" >&2; exit 2 ;;
   esac
@@ -47,7 +50,6 @@ if [[ -n "$APP_CID" ]]; then
   PREV_IMAGE_ID="$(docker inspect "$APP_CID" -f '{{.Image}}' 2>/dev/null || true)"
 fi
 if [[ -z "$PREV_IMAGE_ID" ]]; then
-  # Fallback for default compose naming
   PREV_IMAGE_ID="$(docker inspect "${COMPOSE_PROJECT}-app-1" -f '{{.Image}}' 2>/dev/null || true)"
 fi
 echo "[deploy] previous app image=${PREV_IMAGE_ID:-none} (cid=${APP_CID:-none})"
@@ -56,6 +58,36 @@ if [[ -n "$PREV_IMAGE_ID" ]]; then
   docker tag "$PREV_IMAGE_ID" "$ROLLBACK_TAG"
   echo "[deploy] pinned rollback tag $ROLLBACK_TAG"
 fi
+
+rollback_app() {
+  local reason="$1"
+  echo "[deploy] FAILED ($reason) — rolling back app container to previous image" >&2
+  local IMG_NAME SRC=""
+  IMG_NAME="$(compose config --images app 2>/dev/null | head -1 || true)"
+  # Prefer explicit local name; never retag onto pgsty/silo or postgres.
+  if [[ -z "$IMG_NAME" || "$IMG_NAME" == *"pgsty/silo"* || "$IMG_NAME" == *"postgres"* ]]; then
+    IMG_NAME="agenttracer-app:local"
+  fi
+  if docker image inspect "$ROLLBACK_TAG" >/dev/null 2>&1; then
+    SRC="$ROLLBACK_TAG"
+  elif [[ -n "${PREV_IMAGE_ID:-}" ]] && docker image inspect "$PREV_IMAGE_ID" >/dev/null 2>&1; then
+    SRC="$PREV_IMAGE_ID"
+  fi
+  if [[ -n "$SRC" ]]; then
+    docker tag "$SRC" "$IMG_NAME"
+    compose up -d --no-deps --no-build app
+    sleep 3
+    local VERIFY_URL="${AGENTTRACER_ROLLBACK_HEALTH_URL:-$HEALTH_URL}"
+    if curl -fsS "$VERIFY_URL" >/dev/null 2>&1; then
+      echo "[deploy] rollback restored health ($VERIFY_URL)" >&2
+    else
+      echo "[deploy] rollback attempted; health still failing on $VERIFY_URL — manual intervention needed" >&2
+    fi
+  else
+    echo "[deploy] no previous image to roll back to (src=${SRC:-none} img=${IMG_NAME:-none})" >&2
+  fi
+  exit 1
+}
 
 if [[ "$SKIP_PULL" != "1" ]]; then
   echo "[deploy] ff-only pull origin/$BRANCH"
@@ -68,7 +100,20 @@ if [[ "$SKIP_PULL" != "1" ]]; then
   fi
 fi
 
-echo "[deploy] build app"
+# Ensure pinned third-party images are present locally (preflight itself never pulls).
+echo "[deploy] pull pinned postgres + minio/silo digests"
+compose pull postgres minio
+
+if [[ "$SKIP_PREFLIGHT" != "1" ]]; then
+  echo "[deploy] preflight (digest + entrypoint)"
+  AGENTTRACER_COMPOSE_PROJECT="$COMPOSE_PROJECT" \
+    AGENTTRACER_COMPOSE_FILES="$COMPOSE_FILE_ARGS" \
+    "$REPO_ROOT/deploy/preflight.sh"
+else
+  echo "[deploy] skipping preflight"
+fi
+
+echo "[deploy] build app (image=agenttracer-app:local)"
 compose build app
 
 echo "[deploy] recreate app (no down -v)"
@@ -86,28 +131,14 @@ for i in $(seq 1 "$HEALTH_RETRIES"); do
 done
 
 if [[ "$ok" != "1" ]]; then
-  echo "[deploy] HEALTH FAILED — rolling back app container to previous image" >&2
-  IMG_NAME="$(compose config --images app 2>/dev/null | head -1 || true)"
-  SRC=""
-  if docker image inspect "$ROLLBACK_TAG" >/dev/null 2>&1; then
-    SRC="$ROLLBACK_TAG"
-  elif [[ -n "${PREV_IMAGE_ID:-}" ]] && docker image inspect "$PREV_IMAGE_ID" >/dev/null 2>&1; then
-    SRC="$PREV_IMAGE_ID"
-  fi
-  if [[ -n "$SRC" && -n "$IMG_NAME" ]]; then
-    docker tag "$SRC" "$IMG_NAME"
-    compose up -d --no-deps --no-build app
-    sleep 3
-    VERIFY_URL="${AGENTTRACER_ROLLBACK_HEALTH_URL:-$HEALTH_URL}"
-    if curl -fsS "$VERIFY_URL" >/dev/null 2>&1; then
-      echo "[deploy] rollback restored health ($VERIFY_URL)" >&2
-    else
-      echo "[deploy] rollback attempted; health still failing on $VERIFY_URL — manual intervention needed" >&2
-    fi
-  else
-    echo "[deploy] no previous image to roll back to (src=${SRC:-none} img=${IMG_NAME:-none})" >&2
-  fi
-  exit 1
+  rollback_app "health check"
+fi
+
+echo "[deploy] startup identity check"
+if ! AGENTTRACER_COMPOSE_PROJECT="$COMPOSE_PROJECT" \
+    AGENTTRACER_COMPOSE_FILES="$COMPOSE_FILE_ARGS" \
+    "$REPO_ROOT/deploy/startup_check.sh"; then
+  rollback_app "startup identity check"
 fi
 
 echo "[deploy] success $(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
