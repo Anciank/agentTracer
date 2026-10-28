@@ -16,8 +16,10 @@
 - Never `down -v` on prod (`agenttracer` / :1984).
 - Third-party images are digest-pinned in `docker-compose.yml` / `deploy/docker-compose.at-*.yml` (never `:latest`). App builds as `agenttracer-app:local` only.
 - Read-only prod check: `AGENTTRACER_COMPOSE_PROJECT=agenttracer ./deploy/preflight.sh`
-- Negative :1985 demo (after handoff, do not run on prod):
+- Negative :1985 suite (after handoff, do not run on prod) — poison preflight +
+  image-rename rollback dry-run:
   `AGENTTRACER_TAKEOVER_1985=1 ./deploy/preflight_negative_1985.sh`
+  Sibling: `deploy/rename_rollback_1985.sh` (invoked by the suite).
 
 ## Resource limits (prod compose)
 - postgres 512m, minio 256m, app 384m (+ GOMEMLIMIT 300MiB). Leaves room for one :1985 test stack.

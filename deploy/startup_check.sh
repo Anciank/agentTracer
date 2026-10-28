@@ -14,6 +14,12 @@ compose() { docker compose -p "$COMPOSE_PROJECT" $COMPOSE_FILE_ARGS "$@"; }
 fail() { echo "[startup_check] ERROR: $*" >&2; exit 1; }
 info() { echo "[startup_check] $*"; }
 
+# Test-only: force a post-up identity mismatch so deploy.sh exercises rollback
+# (rename dry-run on :1985). Never set on prod.
+if [[ "${AGENTTRACER_FORCE_STARTUP_MISMATCH:-}" == "1" ]]; then
+  fail "forced mismatch (AGENTTRACER_FORCE_STARTUP_MISMATCH=1) for rename-rollback dry-run"
+fi
+
 cid_of() { compose ps -q "$1" 2>/dev/null || true; }
 
 inspect_ep() {
