@@ -36,7 +36,7 @@ func (s *Store) UpdateSession(ctx context.Context, id string, payload map[string
 	}
 	_, err = s.pool.Exec(ctx, `
 		UPDATE sessions SET name=$1, description=$2, end_time=$3, extra=$4 WHERE id=$5`,
-		name, desc, end, toJSON(extra), uid)
+		name, desc, end, toJSONOr(extra, "{}"), uid)
 	if err != nil {
 		return nil, err
 	}

@@ -179,7 +179,7 @@ func (s *Store) CreateSession(ctx context.Context, payload map[string]any) (map[
 			description=EXCLUDED.description,
 			extra=EXCLUDED.extra,
 			end_time=COALESCE(EXCLUDED.end_time, sessions.end_time)`,
-		id, name, asString(payload["description"]), start, parseTime(payload["end_time"]), toJSON(payload["extra"]))
+		id, name, asString(payload["description"]), start, parseTime(payload["end_time"]), toJSONOr(payload["extra"], "{}"))
 	if err != nil {
 		return nil, err
 	}
