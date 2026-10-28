@@ -16,7 +16,9 @@ const qc = new QueryClient({
     queries: {
       staleTime: 5_000,
       retry: (n, err) => {
-        if (err instanceof ApiError && (err.status === 401 || err.status === 0)) return false;
+        // 401/network: AuthGate handles. 404: expected empty (missing trace/run/thread).
+        if (err instanceof ApiError && (err.status === 401 || err.status === 0 || err.status === 404))
+          return false;
         return n < 1;
       },
       refetchOnWindowFocus: false,
