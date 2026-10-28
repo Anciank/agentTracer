@@ -142,6 +142,74 @@ func (s *Store) loadTraceVisits(ctx context.Context, traceID uuid.UUID) ([]visit
 	return out, nil
 }
 
+func (s *Store) loadVisitsForTraces(ctx context.Context, traceIDs []uuid.UUID) (map[uuid.UUID][]visitKey, error) {
+	out := map[uuid.UUID][]visitKey{}
+	if len(traceIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT trace_id, id, COALESCE(parent_run_id, '00000000-0000-0000-0000-000000000000'::uuid),
+			parent_run_id IS NOT NULL,
+			name, run_type, langgraph_node, langgraph_step, dotted_order,
+			start_time, end_time, error, input_tokens, output_tokens, total_tokens, status
+		FROM runs WHERE trace_id = ANY($1)
+		ORDER BY trace_id, langgraph_step NULLS LAST, dotted_order ASC, start_time ASC NULLS LAST`, traceIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type raw struct {
+		traceID, id, parent           uuid.UUID
+		hasParent                     bool
+		name, runType, dotted, status string
+		lgNode                        *string
+		lgStep                        *int
+		start, end                    *time.Time
+		errStr                        *string
+		in, out, tot                  int
+	}
+	var all []raw
+	roots := map[uuid.UUID]map[uuid.UUID]bool{} // trace -> root ids
+	for rows.Next() {
+		var r raw
+		if err := rows.Scan(&r.traceID, &r.id, &r.parent, &r.hasParent, &r.name, &r.runType, &r.lgNode, &r.lgStep,
+			&r.dotted, &r.start, &r.end, &r.errStr, &r.in, &r.out, &r.tot, &r.status); err != nil {
+			return nil, err
+		}
+		all = append(all, r)
+		if !r.hasParent {
+			m := roots[r.traceID]
+			if m == nil {
+				m = map[uuid.UUID]bool{}
+				roots[r.traceID] = m
+			}
+			m[r.id] = true
+		}
+	}
+	for _, r := range all {
+		lg := ""
+		if r.lgNode != nil {
+			lg = *r.lgNode
+		}
+		isRoot := !r.hasParent
+		isDirect := r.hasParent && roots[r.traceID] != nil && roots[r.traceID][r.parent]
+		key, fromLG, ok := graph.VisitKey(lg, r.name, r.runType, isRoot, isDirect)
+		if !ok {
+			continue
+		}
+		vk := visitKey{key: key, fromLG: fromLG, in: r.in, out: r.out, tot: r.tot, start: r.start}
+		if r.errStr != nil && *r.errStr != "" {
+			vk.errored = true
+		}
+		if r.start != nil && r.end != nil {
+			vk.latMs = float64(r.end.Sub(*r.start).Milliseconds())
+		}
+		out[r.traceID] = append(out[r.traceID], vk)
+	}
+	return out, nil
+}
+
 func parseWindow(window string, from, to *time.Time) (time.Time, time.Time, string, error) {
 	now := time.Now().UTC()
 	if from != nil && to != nil {
@@ -204,28 +272,29 @@ func (s *Store) UIGraph(ctx context.Context, opts GraphOpts) (map[string]any, er
 	if err != nil {
 		return nil, err
 	}
-	type rootRef struct{ id, tid uuid.UUID }
-	var roots []rootRef
+	var rootTraceIDs []uuid.UUID
 	for rootRows.Next() {
-		var r rootRef
-		if err := rootRows.Scan(&r.id, &r.tid); err != nil {
+		var id, tid uuid.UUID
+		if err := rootRows.Scan(&id, &tid); err != nil {
 			rootRows.Close()
 			return nil, err
 		}
-		roots = append(roots, r)
+		rootTraceIDs = append(rootTraceIDs, tid)
 	}
 	rootRows.Close()
-	traceCount := len(roots)
+	traceCount := len(rootTraceIDs)
 
 	nodesAcc := map[string]*graph.NodeAccum{}
 	edgesAcc := map[string]*graph.EdgeAccum{}
 	rootOnly := 0
 
-	for _, r := range roots {
-		visits, err := s.loadTraceVisits(ctx, r.tid)
-		if err != nil {
-			return nil, err
-		}
+	// Batch-load visits for all window traces (avoids N+1; keeps 7d/~5k under 1s).
+	byTrace, err := s.loadVisitsForTraces(ctx, rootTraceIDs)
+	if err != nil {
+		return nil, err
+	}
+	for _, tid := range rootTraceIDs {
+		visits := byTrace[tid]
 		if len(visits) == 0 {
 			rootOnly++
 			k := graph.RootOnlyKey()
