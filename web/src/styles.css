@@ -562,8 +562,15 @@ a { color: var(--accent-ink); }
 }
 .mon-chart { position: relative; width: 100%; }
 .mon-svg { display: block; max-width: 100%; }
-.mon-grid-line, .mon-grid { stroke: var(--hairline); stroke-width: 1; }
-.mon-axis { font-size: 11px; fill: var(--muted); font-family: var(--sans); }
+.mon-grid-line { stroke: var(--hairline); stroke-width: 1; }
+.mon-axis {
+  font-size: 11.5px;
+  /* Match body muted text, but SVG fill needs explicit strength for dark+light */
+  fill: var(--text);
+  opacity: 0.72;
+  font-family: var(--sans);
+  font-weight: 500;
+}
 .mon-bar-ok { fill: #34c759; cursor: pointer; }
 .mon-bar-err { fill: var(--error); cursor: pointer; }
 .mon-bar-in { fill: #0a84ff; cursor: pointer; }

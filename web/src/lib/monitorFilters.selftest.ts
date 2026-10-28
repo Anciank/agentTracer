@@ -6,10 +6,27 @@ import {
   drillModel,
   drillTool,
   drillToParams,
+  monitorBucketForWindow,
+  monitorBucketCount,
+  monitorBucketStepMs,
 } from "./monitorFilters.ts";
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
+}
+
+{
+  assert(monitorBucketForWindow("1h") === "1m", "1h→1m");
+  assert(monitorBucketCount("1h") === 60, "1h points");
+  assert(monitorBucketStepMs("1m") === 60_000, "1m step");
+
+  assert(monitorBucketForWindow("24h") === "1h", "24h→1h");
+  assert(monitorBucketCount("24h") === 24, "24h points");
+  assert(monitorBucketStepMs("1h") === 3600_000, "1h step");
+
+  assert(monitorBucketForWindow("7d") === "6h", "7d→6h");
+  assert(monitorBucketCount("7d") === 28, "7d points");
+  assert(monitorBucketStepMs("6h") === 6 * 3600_000, "6h step");
 }
 
 {
@@ -32,6 +49,14 @@ function assert(cond: unknown, msg: string): asserts cond {
   const p = drillToParams(d);
   assert(p.from === "t0" && p.to === "t1", "bucket bounds");
   assert(!p.status && !p.model && !p.tool, "no extras");
+}
+
+{
+  // 6h bucket bounds → from/to filter
+  const d = drillBucket("support", "2026-10-21T00:00:00.000Z", "2026-10-21T06:00:00.000Z");
+  const p = drillToParams(d);
+  assert(p.from === "2026-10-21T00:00:00.000Z", "6h from");
+  assert(p.to === "2026-10-21T06:00:00.000Z", "6h to");
 }
 
 {

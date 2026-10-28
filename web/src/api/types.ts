@@ -274,7 +274,7 @@ export type PathsParams = {
 
 /** M3.6 Monitor — keep in sync with agentTracer_graph_shapes.md */
 
-export type MonitorBucketSize = "1m" | "1h" | "1d";
+export type MonitorBucketSize = "1m" | "1h" | "6h";
 
 export type MonitorParams = {
   window?: GraphWindow;
@@ -324,7 +324,8 @@ export type ToolRow = {
   error_rate: number;
   p50_ms: number | null;
   p99_ms: number | null;
-  tokens: Tokens;
+  /** null when tools do not carry tokens — UI shows "—" */
+  tokens: Tokens | null;
 };
 
 export type MonitorResponse = {

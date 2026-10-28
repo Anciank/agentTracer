@@ -43,7 +43,7 @@ function sortModels(rows: ModelRow[], key: string, dir: "asc" | "desc"): ModelRo
     else if (key === "error_rate") cmp = a.error_rate - b.error_rate;
     else if (key === "p50_ms") cmp = (a.p50_ms || 0) - (b.p50_ms || 0);
     else if (key === "p99_ms") cmp = (a.p99_ms || 0) - (b.p99_ms || 0);
-    else if (key === "tokens") cmp = a.tokens.total - b.tokens.total;
+    else if (key === "tokens") cmp = (a.tokens?.total ?? -1) - (b.tokens?.total ?? -1);
     if (cmp === 0) cmp = a.model.localeCompare(b.model);
     return cmp * mul;
   });
@@ -59,7 +59,7 @@ function sortTools(rows: ToolRow[], key: string, dir: "asc" | "desc"): ToolRow[]
     else if (key === "error_rate") cmp = a.error_rate - b.error_rate;
     else if (key === "p50_ms") cmp = (a.p50_ms || 0) - (b.p50_ms || 0);
     else if (key === "p99_ms") cmp = (a.p99_ms || 0) - (b.p99_ms || 0);
-    else if (key === "tokens") cmp = a.tokens.total - b.tokens.total;
+    else if (key === "tokens") cmp = (a.tokens?.total ?? -1) - (b.tokens?.total ?? -1);
     if (cmp === 0) cmp = a.tool.localeCompare(b.tool);
     return cmp * mul;
   });
@@ -439,7 +439,7 @@ export default function ProjectMonitorPage({ projectId, window: win }: Props) {
                       </td>
                       <td>{fmtDurMs(r.p50_ms)}</td>
                       <td>{fmtDurMs(r.p99_ms)}</td>
-                      <td>{fmtInt(r.tokens.total)}</td>
+                      <td>{r.tokens && r.tokens.total > 0 ? fmtInt(r.tokens.total) : "—"}</td>
                     </tr>
                   ))}
                 </tbody>

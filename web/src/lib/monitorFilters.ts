@@ -1,7 +1,8 @@
 /**
  * Map Monitor chart/table clicks → /traces deep-link query params.
+ * Also: window → bucket size / expected point count (shapes contract).
  */
-import type { TraceStatus } from "../api/types";
+import type { GraphWindow, MonitorBucketSize, TraceStatus } from "../api/types";
 
 export type MonitorDrill = {
   project: string;
@@ -11,6 +12,25 @@ export type MonitorDrill = {
   model?: string;
   tool?: string;
 };
+
+/** Shapes: 1h→1m×60, 24h→1h×24, 7d→6h×28 */
+export function monitorBucketForWindow(w: GraphWindow): MonitorBucketSize {
+  if (w === "1h") return "1m";
+  if (w === "7d") return "6h";
+  return "1h";
+}
+
+export function monitorBucketCount(w: GraphWindow): number {
+  if (w === "1h") return 60;
+  if (w === "7d") return 28;
+  return 24;
+}
+
+export function monitorBucketStepMs(bucket: MonitorBucketSize): number {
+  if (bucket === "1m") return 60_000;
+  if (bucket === "6h") return 6 * 3600_000;
+  return 3600_000;
+}
 
 /** Build `/traces?…` href for a Monitor drill-down. */
 export function tracesHref(d: MonitorDrill): string {

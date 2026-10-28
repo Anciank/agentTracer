@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import type { LatencyBucket, TokenBucket, TraceBucket } from "../../api/types";
+import type { LatencyBucket, MonitorBucketSize, TokenBucket, TraceBucket } from "../../api/types";
 import { fmtDurMs, fmtInt } from "../../lib/format";
 
-const PAD = { l: 48, r: 12, t: 14, b: 28 };
+const PAD = { l: 52, r: 12, t: 14, b: 28 };
 
 function useWidth(defaultW = 640): { hostRef: RefObject<HTMLDivElement>; w: number } {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -21,10 +21,30 @@ function useWidth(defaultW = 640): { hostRef: RefObject<HTMLDivElement>; w: numb
   return { hostRef, w };
 }
 
-function fmtBucketLabel(t: string, bucketHint: string): string {
+/** HH:MM for 1m/1h; 'Mon 12:00' for 6h (7d window). */
+export function fmtBucketLabel(t: string, bucket: string): string {
   const d = new Date(t);
-  if (bucketHint === "1d") return d.toISOString().slice(5, 10);
-  return d.toISOString().slice(11, 16);
+  if (bucket === "6h") {
+    const day = d.toLocaleString("en-US", { weekday: "short", timeZone: "UTC" });
+    const hh = String(d.getUTCHours()).padStart(2, "0");
+    const mm = String(d.getUTCMinutes()).padStart(2, "0");
+    return `${day} ${hh}:${mm}`;
+  }
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
+/** ~6 evenly spaced x-axis labels including first/last (same for all charts). */
+export function xLabelIndices(n: number, target = 6): number[] {
+  if (n <= 0) return [];
+  if (n <= target) return Array.from({ length: n }, (_, i) => i);
+  const count = Math.min(target, n);
+  const out: number[] = [];
+  for (let i = 0; i < count; i++) {
+    out.push(Math.round((i * (n - 1)) / (count - 1)));
+  }
+  return [...new Set(out)];
 }
 
 function yTicks(max: number, n = 4): number[] {
@@ -46,7 +66,7 @@ function fmtTok(t: number): string {
 
 type StackedProps = {
   series: TraceBucket[];
-  bucket: string;
+  bucket: MonitorBucketSize | string;
   height?: number;
   hoverIdx: number | null;
   onHover: (idx: number | null) => void;
@@ -70,6 +90,7 @@ export function StackedTracesChart({
   const n = series.length || 1;
   const gap = n > 40 ? 1 : 2;
   const barW = Math.max(2, innerW / n - gap);
+  const xLabels = useMemo(() => new Set(xLabelIndices(n)), [n]);
 
   const tip = useMemo(() => {
     if (hoverIdx == null || !series[hoverIdx]) return null;
@@ -88,7 +109,7 @@ export function StackedTracesChart({
           const y = PAD.t + innerH - (t / yMax) * innerH;
           return (
             <g key={t}>
-              <line x1={PAD.l} x2={w - PAD.r} y1={y} y2={y} className="mon-grid" />
+              <line x1={PAD.l} x2={w - PAD.r} y1={y} y2={y} className="mon-grid-line" />
               <text x={PAD.l - 6} y={y + 3} textAnchor="end" className="mon-axis">
                 {fmtInt(t)}
               </text>
@@ -129,8 +150,7 @@ export function StackedTracesChart({
           );
         })}
         {series.map((s, i) => {
-          const step = n > 24 ? Math.ceil(n / 8) : n > 8 ? Math.ceil(n / 6) : 1;
-          if (i % step !== 0 && i !== n - 1) return null;
+          if (!xLabels.has(i)) return null;
           const x = PAD.l + i * (barW + gap) + barW / 2;
           return (
             <text key={`xl-${s.t}`} x={x} y={height - 8} textAnchor="middle" className="mon-axis">
@@ -154,7 +174,7 @@ export function StackedTracesChart({
 
 type LineProps = {
   series: LatencyBucket[];
-  bucket: string;
+  bucket: MonitorBucketSize | string;
   height?: number;
   hoverIdx: number | null;
   onHover: (idx: number | null) => void;
@@ -179,6 +199,7 @@ export function LatencyLinesChart({
   const n = series.length || 1;
   const xAt = (i: number) => PAD.l + (n === 1 ? innerW / 2 : (i / Math.max(1, n - 1)) * innerW);
   const yAt = (v: number | null) => PAD.t + innerH - ((v || 0) / yMax) * innerH;
+  const xLabels = useMemo(() => new Set(xLabelIndices(n)), [n]);
   const path = (key: "p50_ms" | "p99_ms") => {
     const pts: string[] = [];
     series.forEach((s, i) => {
@@ -195,7 +216,7 @@ export function LatencyLinesChart({
           const y = PAD.t + innerH - (t / yMax) * innerH;
           return (
             <g key={t}>
-              <line x1={PAD.l} x2={w - PAD.r} y1={y} y2={y} className="mon-grid" />
+              <line x1={PAD.l} x2={w - PAD.r} y1={y} y2={y} className="mon-grid-line" />
               <text x={PAD.l - 6} y={y + 3} textAnchor="end" className="mon-axis">
                 {fmtDurMs(t)}
               </text>
@@ -216,8 +237,7 @@ export function LatencyLinesChart({
           />
         ))}
         {series.map((s, i) => {
-          const step = n > 24 ? Math.ceil(n / 8) : 1;
-          if (i % step !== 0 && i !== n - 1) return null;
+          if (!xLabels.has(i)) return null;
           return (
             <text key={`xl-${s.t}`} x={xAt(i)} y={height - 8} textAnchor="middle" className="mon-axis">
               {fmtBucketLabel(s.t, bucket)}
@@ -242,7 +262,7 @@ export function LatencyLinesChart({
 
 type TokensProps = {
   series: TokenBucket[];
-  bucket: string;
+  bucket: MonitorBucketSize | string;
   height?: number;
   hoverIdx: number | null;
   onHover: (idx: number | null) => void;
@@ -266,6 +286,7 @@ export function TokensChart({
   const n = series.length || 1;
   const gap = n > 40 ? 1 : 2;
   const barW = Math.max(2, innerW / n - gap);
+  const xLabels = useMemo(() => new Set(xLabelIndices(n)), [n]);
   const hover = hoverIdx != null ? series[hoverIdx] : null;
 
   return (
@@ -275,7 +296,7 @@ export function TokensChart({
           const y = PAD.t + innerH - (t / yMax) * innerH;
           return (
             <g key={t}>
-              <line x1={PAD.l} x2={w - PAD.r} y1={y} y2={y} className="mon-grid" />
+              <line x1={PAD.l} x2={w - PAD.r} y1={y} y2={y} className="mon-grid-line" />
               <text x={PAD.l - 6} y={y + 3} textAnchor="end" className="mon-axis">
                 {fmtTok(t)}
               </text>
@@ -313,8 +334,7 @@ export function TokensChart({
           );
         })}
         {series.map((s, i) => {
-          const step = n > 24 ? Math.ceil(n / 8) : n > 8 ? Math.ceil(n / 6) : 1;
-          if (i % step !== 0 && i !== n - 1) return null;
+          if (!xLabels.has(i)) return null;
           const x = PAD.l + i * (barW + gap) + barW / 2;
           return (
             <text key={`xl-${s.t}`} x={x} y={height - 8} textAnchor="middle" className="mon-axis">
