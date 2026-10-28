@@ -51,6 +51,11 @@ if [[ -z "$PREV_IMAGE_ID" ]]; then
   PREV_IMAGE_ID="$(docker inspect "${COMPOSE_PROJECT}-app-1" -f '{{.Image}}' 2>/dev/null || true)"
 fi
 echo "[deploy] previous app image=${PREV_IMAGE_ID:-none} (cid=${APP_CID:-none})"
+ROLLBACK_TAG="${COMPOSE_PROJECT}-app:rollback-prev"
+if [[ -n "$PREV_IMAGE_ID" ]]; then
+  docker tag "$PREV_IMAGE_ID" "$ROLLBACK_TAG"
+  echo "[deploy] pinned rollback tag $ROLLBACK_TAG"
+fi
 
 if [[ "$SKIP_PULL" != "1" ]]; then
   echo "[deploy] ff-only pull origin/$BRANCH"
@@ -82,22 +87,25 @@ done
 
 if [[ "$ok" != "1" ]]; then
   echo "[deploy] HEALTH FAILED — rolling back app container to previous image" >&2
-  if [[ -n "${PREV_IMAGE_ID:-}" ]]; then
-    IMG_NAME="$(compose config --images app 2>/dev/null | head -1 || true)"
-    if [[ -n "$IMG_NAME" ]]; then
-      docker tag "$PREV_IMAGE_ID" "$IMG_NAME"
-      compose up -d --no-deps --no-build app
-      sleep 3
-      if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then
-        echo "[deploy] rollback restored health" >&2
-      else
-        echo "[deploy] rollback attempted; health still failing — manual intervention needed" >&2
-      fi
+  IMG_NAME="$(compose config --images app 2>/dev/null | head -1 || true)"
+  SRC=""
+  if docker image inspect "$ROLLBACK_TAG" >/dev/null 2>&1; then
+    SRC="$ROLLBACK_TAG"
+  elif [[ -n "${PREV_IMAGE_ID:-}" ]] && docker image inspect "$PREV_IMAGE_ID" >/dev/null 2>&1; then
+    SRC="$PREV_IMAGE_ID"
+  fi
+  if [[ -n "$SRC" && -n "$IMG_NAME" ]]; then
+    docker tag "$SRC" "$IMG_NAME"
+    compose up -d --no-deps --no-build app
+    sleep 3
+    VERIFY_URL="${AGENTTRACER_ROLLBACK_HEALTH_URL:-$HEALTH_URL}"
+    if curl -fsS "$VERIFY_URL" >/dev/null 2>&1; then
+      echo "[deploy] rollback restored health ($VERIFY_URL)" >&2
     else
-      echo "[deploy] could not resolve compose image name for rollback" >&2
+      echo "[deploy] rollback attempted; health still failing on $VERIFY_URL — manual intervention needed" >&2
     fi
   else
-    echo "[deploy] no previous image to roll back to" >&2
+    echo "[deploy] no previous image to roll back to (src=${SRC:-none} img=${IMG_NAME:-none})" >&2
   fi
   exit 1
 fi
