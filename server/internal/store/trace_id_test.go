@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -297,5 +299,37 @@ func TestSuffixPrefixesUUIDRejectsShortAndNonHex(t *testing.T) {
 	}
 	if suffixPrefixesUUID("093bdce7", id) {
 		t.Fatal("other uuid prefix must not match")
+	}
+}
+
+func TestResolveTraceIDFromRecordedUIBroChildPayload(t *testing.T) {
+	// Exact stored child from at-m3 (d507498) after UIBro ingest_m3_final.py —
+	// see testdata/uibro_m3_ingest/sample_oo_child_run.json.
+	raw, err := os.ReadFile("testdata/uibro_m3_ingest/sample_oo_child_run.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recorded map[string]any
+	if err := json.Unmarshal(raw, &recorded); err != nil {
+		t.Fatal(err)
+	}
+	id := asUUID(recorded["id"])
+	parent := asUUID(recorded["parent_run_id"])
+	if id == nil || parent == nil {
+		t.Fatalf("bad fixture ids: %v", recorded)
+	}
+	// Reproduce the buggy stored shape: trace_id == id, short-hex dotted_order.
+	if asString(recorded["trace_id"]) != id.String() {
+		t.Fatalf("fixture expected orphaned trace_id==id, got %v", recorded["trace_id"])
+	}
+	wantDotted := "20261028T074333745856Zd23b9ff8.20261028T074333695856Z093bdce7"
+	if asString(recorded["dotted_order"]) != wantDotted {
+		t.Fatalf("dotted_order=%q", recorded["dotted_order"])
+	}
+
+	var s *Store
+	got := s.resolveTraceID(context.Background(), *id, recorded)
+	if got == nil || *got != *parent {
+		t.Fatalf("resolved=%v want parent/root %s", got, parent)
 	}
 }
