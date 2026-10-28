@@ -8,6 +8,7 @@ import { AuthGate } from "./components/AuthGate";
 const ProjectPage = lazy(() => import("./pages/ProjectPage"));
 const MapRedirect = lazy(() => import("./pages/MapRedirect"));
 import { getApiKey } from "./lib/auth";
+import { AuthUIContext } from "./lib/authUI";
 import { getApiMode, listProjects, ApiError, mocksAllowed } from "./api/client";
 
 const qc = new QueryClient({
@@ -55,7 +56,7 @@ function ThemeToggle() {
 
 function Shell() {
   const [help, setHelp] = useState(false);
-  const [needAuth, setNeedAuth] = useState(false);
+  const [needAuth, setNeedAuth] = useState(() => !getApiKey());
   const [modeLabel, setModeLabel] = useState(getApiMode());
   const nav = useNavigate();
   const loc = useLocation();
@@ -101,6 +102,7 @@ function Shell() {
   }, [help, loc.pathname, nav]);
 
   return (
+    <AuthUIContext.Provider value={{ dialogOpen: needAuth }}>
     <div className="app">
       <header className="topbar">
         <Link to="/" style={{ textDecoration: "none", color: "inherit" }}>
@@ -145,6 +147,7 @@ function Shell() {
         }}
       />
     </div>
+    </AuthUIContext.Provider>
   );
 }
 

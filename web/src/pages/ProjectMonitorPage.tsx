@@ -366,16 +366,20 @@ export default function ProjectMonitorPage({ projectId, window: win }: Props) {
                     <td>{fmtInt(r.calls)}</td>
                     <td>{fmtPct(r.share)}</td>
                     <td>
-                      <button
-                        type="button"
-                        className="linkish err"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          go(tracesHref(drillModel(project, data.from, data.to, r.model, true)));
-                        }}
-                      >
-                        {fmtPct(r.error_rate)}
-                      </button>
+                      {r.error_rate > 0 ? (
+                        <button
+                          type="button"
+                          className="linkish err"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            go(tracesHref(drillModel(project, data.from, data.to, r.model, true)));
+                          }}
+                        >
+                          {fmtPct(r.error_rate)}
+                        </button>
+                      ) : (
+                        <span className="muted">{fmtPct(r.error_rate)}</span>
+                      )}
                     </td>
                     <td>{fmtDurMs(r.p50_ms)}</td>
                     <td>{fmtDurMs(r.p99_ms)}</td>
@@ -431,16 +435,20 @@ export default function ProjectMonitorPage({ projectId, window: win }: Props) {
                       <td>{fmtInt(r.calls)}</td>
                       <td>{fmtPct(r.share)}</td>
                       <td>
-                        <button
-                          type="button"
-                          className="linkish err"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            go(tracesHref(drillTool(project, data.from, data.to, r.tool, true)));
-                          }}
-                        >
-                          {fmtPct(r.error_rate)}
-                        </button>
+                        {r.error_rate > 0 ? (
+                          <button
+                            type="button"
+                            className="linkish err"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              go(tracesHref(drillTool(project, data.from, data.to, r.tool, true)));
+                            }}
+                          >
+                            {fmtPct(r.error_rate)}
+                          </button>
+                        ) : (
+                          <span className="muted">{fmtPct(r.error_rate)}</span>
+                        )}
                       </td>
                       <td>{fmtDurMs(r.p50_ms)}</td>
                       <td>{fmtDurMs(r.p99_ms)}</td>

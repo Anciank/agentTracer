@@ -1,4 +1,6 @@
 import { ApiError } from "../api/client";
+import { getApiKey } from "../lib/auth";
+import { useAuthUI } from "../lib/authUI";
 
 type Props = {
   error: unknown;
@@ -7,6 +9,7 @@ type Props = {
 };
 
 export function ErrorState({ error, onRetry, title }: Props) {
+  const { dialogOpen } = useAuthUI();
   const status = error instanceof ApiError ? error.status : undefined;
   const detail =
     error instanceof ApiError
@@ -14,6 +17,9 @@ export function ErrorState({ error, onRetry, title }: Props) {
       : error instanceof Error
         ? error.message
         : "Unknown error";
+
+  // Missing/pending key is handled by AuthGate — not an error banner.
+  if (status === 401 && (dialogOpen || !getApiKey())) return null;
 
   let headline = title || "Request failed";
   let hint = detail;
