@@ -16,8 +16,8 @@ const T = (input: number, output: number): Tokens => ({
 
 export const PROJECTS: ProjectCard[] = [
   {
-    id: "00000000-0000-4000-8000-agnes0000001",
-    name: "agnes-testing",
+    id: "00000000-0000-4000-8000-demo00000001",
+    name: "demo-testing",
     trace_count_24h: 64,
     trace_count_7d: 410,
     error_rate_24h: 0.08,
@@ -89,8 +89,8 @@ function span(
 export const TRACES: TraceSummary[] = [
   {
     trace_id: TRACE_A,
-    name: "agnes-remember_flow",
-    project: "agnes-testing",
+    name: "remember_flow",
+    project: "demo-testing",
     start: "2026-10-28T08:54:05.123Z",
     end: "2026-10-28T08:54:42.823Z",
     duration_ms: 783,
@@ -99,13 +99,13 @@ export const TRACES: TraceSummary[] = [
     running_count: 0,
     status: "success",
     tokens: T(120, 90),
-    model: "agnes-3.0-flash",
+    model: "some-model-flash",
     run_types: { chain: 2, llm: 1, tool: 1 },
   },
   {
     trace_id: TRACE_B,
-    name: "agnes-bilingual_cn_with_a_very_long_suffix_for_ellipsis",
-    project: "agnes-testing",
+    name: "bilingual_cn_with_a_very_long_suffix_for_ellipsis",
+    project: "demo-testing",
     start: "2026-10-28T08:53:40.000Z",
     end: null,
     duration_ms: null,
@@ -114,13 +114,13 @@ export const TRACES: TraceSummary[] = [
     running_count: 2,
     status: "running",
     tokens: T(180, 56),
-    model: "agnes-3.0-flash",
+    model: "some-model-flash",
     run_types: { chain: 1, llm: 2, tool: 3 },
   },
   {
     trace_id: TRACE_C,
-    name: "agnes-search_and_summarize",
-    project: "agnes-testing",
+    name: "search_and_summarize",
+    project: "demo-testing",
     start: "2026-10-28T08:52:00.000Z",
     end: "2026-10-28T08:52:03.190Z",
     duration_ms: 3190,
@@ -189,11 +189,11 @@ export function makeManyTraces(n: number): TraceSummary[] {
       name: err
         ? `fail_path_with_long_name_${i}`
         : i % 11 === 0
-          ? `agnes-bilingual_cn_${i}`
+          ? `bilingual_cn_${i}`
           : i % 7 === 0
             ? `running_flow_${i}`
             : `run_${i}`,
-      project: i % 3 === 0 ? "agnes-testing" : i % 3 === 1 ? "research" : "local-dev",
+      project: i % 3 === 0 ? "demo-testing" : i % 3 === 1 ? "research" : "local-dev",
       start: new Date(Date.UTC(2026, 9, 27, 12, 0, 0) - i * 60_000).toISOString().replace(".000Z", ".000Z"),
       end: i % 7 === 0 ? null : new Date(Date.UTC(2026, 9, 27, 12, 0, 0) - i * 60_000 + 5000).toISOString().replace(".000Z", ".000Z"),
       duration_ms: i % 7 === 0 ? null : 1000 + (i % 50) * 100,
@@ -202,7 +202,7 @@ export function makeManyTraces(n: number): TraceSummary[] {
       running_count: i % 7 === 0 ? 1 : 0,
       status: err ? "error" : i % 7 === 0 ? "running" : "success",
       tokens: T(100 + i, 50 + (i % 40)),
-      model: i % 5 === 0 ? "agnes-3.0-flash" : i % 2 ? "gpt-4o-mini" : "gpt-4o",
+      model: i % 5 === 0 ? "some-model-flash" : i % 2 ? "gpt-4o-mini" : "gpt-4o",
       run_types: { chain: 1, llm: 1 + (i % 3), tool: i % 4 },
     });
   }
@@ -218,7 +218,7 @@ export const SUMMARIES: Record<string, TraceSummaryResponse> = {
     rows: [
       span({
         id: rootId,
-        name: "agnes-remember_flow",
+        name: "remember_flow",
         run_type: "chain",
         node: "supervisor",
         depth: 0,
@@ -226,7 +226,7 @@ export const SUMMARIES: Record<string, TraceSummaryResponse> = {
         latency_ms: 783,
         self_time_ms: 120,
         tokens: T(120, 90),
-        model: "agnes-3.0-flash",
+        model: "some-model-flash",
         tags: ["prod"],
         dotted_order: "20261027T150405123000Z" + rootId,
         status: "error",
