@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { getTraceSummary } from "../api/client";
@@ -12,6 +12,7 @@ import {
   buildHash,
   type UiFilters,
 } from "../lib/filters";
+import { traceOpenPath } from "../lib/traceNav";
 import { fmtDurMs, fmtInt } from "../lib/format";
 import { ErrorState } from "../components/ErrorState";
 import { buildWaterfallRows, indexTree, isOrphanGroupId, visibleRows } from "../lib/tree";
@@ -36,8 +37,17 @@ export function TracesPage() {
     if (h.folded.length) setFolded(new Set(h.folded));
   }, [loc.hash]);
 
+  const prevDeepRef = useRef<string | null>(null);
   useEffect(() => {
     if (deepTrace) setListSel(deepTrace);
+    // Switching traces: drop span selection so detail matches the new waterfall.
+    // Skip the initial mount so a #run= hash can still apply.
+    if (deepTrace && prevDeepRef.current && prevDeepRef.current !== deepTrace) {
+      setRunId(null);
+      setFolded(new Set());
+      setTab(0);
+    }
+    prevDeepRef.current = deepTrace;
   }, [deepTrace]);
 
   const openTrace = useCallback(
@@ -45,8 +55,8 @@ export function TracesPage() {
       setListSel(id);
       setRunId(null);
       setFolded(new Set());
-      const q = filtersToSearch(filters);
-      nav(`/traces/${id}${q}`);
+      setTab(0);
+      nav(traceOpenPath(id, filters));
     },
     [filters, nav]
   );
@@ -70,8 +80,7 @@ export function TracesPage() {
     queryKey: ["summary", deepTrace],
     queryFn: () => getTraceSummary(deepTrace!),
     enabled: !!deepTrace,
-    // Live upserts write via setQueryData; never blank the pane on background refetch.
-    placeholderData: (prev) => prev,
+    // Same-key refetch keeps data; do NOT keepPrevious across trace ids (stale pane).
     refetchOnMount: false,
   });
 
@@ -144,7 +153,8 @@ export function TracesPage() {
         return;
       }
       if (e.key === "Enter" || e.key === "o") {
-        if (!deepTrace && listSel) openTrace(listSel);
+        // Open (or switch to) the highlighted row — works even when a trace is already open.
+        if (listSel) openTrace(listSel);
         return;
       }
       if (e.key === "Escape") {

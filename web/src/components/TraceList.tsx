@@ -269,8 +269,8 @@ export function TraceList({
               <div
                 key={t.trace_id}
                 role="option"
-                aria-selected={t.trace_id === selectedId}
-                className={`trow ${t.trace_id === selectedId ? "active" : ""} ${
+                aria-selected={t.trace_id === selectedId || t.trace_id === openTraceId}
+                className={`trow ${t.trace_id === selectedId || t.trace_id === openTraceId ? "active" : ""} ${
                   errored ? "has-error" : ""
                 } ${running ? "is-running" : ""}`}
                 style={{
@@ -281,7 +281,7 @@ export function TraceList({
                   height: TRACE_ROW_H,
                   transform: `translateY(${vi.start}px)`,
                 }}
-                onClick={() => onSelect(t.trace_id)}
+                onClick={() => onOpen(t.trace_id)}
                 onDoubleClick={() => onOpen(t.trace_id)}
               >
                 <span
