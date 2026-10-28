@@ -40,8 +40,17 @@ else
   echo "[deploy] skipping backup"
 fi
 
-PREV_IMAGE_ID="$(docker inspect "${COMPOSE_PROJECT}-app-1" -f '{{.Image}}' 2>/dev/null || true)"
-echo "[deploy] previous app image=${PREV_IMAGE_ID:-none}"
+# Resolve app container id via compose (works with container_name overrides like at-m2-app).
+APP_CID="$(compose ps -q app 2>/dev/null || true)"
+PREV_IMAGE_ID=""
+if [[ -n "$APP_CID" ]]; then
+  PREV_IMAGE_ID="$(docker inspect "$APP_CID" -f '{{.Image}}' 2>/dev/null || true)"
+fi
+if [[ -z "$PREV_IMAGE_ID" ]]; then
+  # Fallback for default compose naming
+  PREV_IMAGE_ID="$(docker inspect "${COMPOSE_PROJECT}-app-1" -f '{{.Image}}' 2>/dev/null || true)"
+fi
+echo "[deploy] previous app image=${PREV_IMAGE_ID:-none} (cid=${APP_CID:-none})"
 
 if [[ "$SKIP_PULL" != "1" ]]; then
   echo "[deploy] ff-only pull origin/$BRANCH"
