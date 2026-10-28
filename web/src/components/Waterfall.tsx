@@ -36,11 +36,13 @@ export function Waterfall({ rows, spanMs, selectedId, folded, onSelect, onToggle
     overscan: 20,
   });
 
+  // Scroll only when the user changes selection — not when live upserts refresh `visible`.
   useEffect(() => {
     if (!selectedId) return;
     const idx = visible.findIndex((r) => r.id === selectedId);
     if (idx >= 0) virt.scrollToIndex(idx, { align: "auto" });
-  }, [selectedId, visible, virt]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: preserve scroll across upserts
+  }, [selectedId]);
 
   const span = Math.max(spanMs, 1);
   const pct = (v: number) => (v / span) * 100;

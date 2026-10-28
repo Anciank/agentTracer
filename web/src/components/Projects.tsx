@@ -2,13 +2,20 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { listProjects } from "../api/client";
 import { fmtInt, fmtPct, fmtDurMs } from "../lib/format";
+import { ErrorState } from "./ErrorState";
 
 export function ProjectsPage() {
   const nav = useNavigate();
   const q = useQuery({ queryKey: ["projects"], queryFn: listProjects });
 
   if (q.isLoading) return <div className="page empty">Loading projects…</div>;
-  if (q.isError) return <div className="page empty">Failed to load projects</div>;
+  if (q.isError) {
+    return (
+      <div className="page">
+        <ErrorState error={q.error} onRetry={() => void q.refetch()} title="Failed to load projects" />
+      </div>
+    );
+  }
   const projects = q.data || [];
   if (!projects.length) {
     return (
@@ -35,8 +42,8 @@ export function ProjectsPage() {
                 <b>{fmtInt(p.trace_count_24h)}</b> traces / 24h · <b>{fmtInt(p.trace_count_7d)}</b> / 7d
               </div>
               <div>
-                errors <b>{fmtPct(p.error_rate_24h)}</b> · p50{" "}
-                <b>{fmtDurMs(p.p50_ms)}</b> · p95 <b>{fmtDurMs(p.p95_ms)}</b>
+                errors <b>{fmtPct(p.error_rate_24h)}</b> · p50 <b>{fmtDurMs(p.p50_ms)}</b> · p95{" "}
+                <b>{fmtDurMs(p.p95_ms)}</b>
               </div>
               <div>
                 tokens <b>{fmtInt(p.tokens_24h)}</b>

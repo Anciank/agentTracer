@@ -1,12 +1,9 @@
 /**
  * API client for /api/ui/*.
  *
- * Mode:
- * - VITE_MOCK=1 → always mock
- * - VITE_MOCK=0 → always real
- * - unset → try real once; on 404/network failure flip to mock for the session
- *
- * Auth: x-api-key from session/local storage (see lib/auth).
+ * Production builds are REAL-ONLY. Mock implementation lives in ./mockClient and
+ * is only reached via dynamic import behind `import.meta.env.DEV || VITE_MOCK===1`
+ * so Vite/Rollup tree-shakes fixtures out of the embed.
  */
 import { getApiKey, clearApiKey } from "../lib/auth";
 import type {
@@ -18,33 +15,24 @@ import type {
   MessagesResponse,
   StatsResponse,
   StreamEvent,
-  TraceSummary,
   SpanSummary,
+  TraceSummary,
 } from "./types";
 
-export type ApiMode = "mock" | "real" | "auto";
-
-let mode: ApiMode =
-  import.meta.env.VITE_MOCK === "1" ? "mock" : import.meta.env.VITE_MOCK === "0" ? "real" : "auto";
-let resolved: "mock" | "real" | null = mode === "auto" ? null : mode;
-
-export function getApiMode(): string {
-  return resolved ?? `auto→pending`;
+/** True when fixture mocks are allowed (never in a plain production build). */
+export function mocksAllowed(): boolean {
+  return import.meta.env.DEV || import.meta.env.VITE_MOCK === "1";
 }
 
-export function forceMock(): void {
-  mode = "mock";
-  resolved = "mock";
+/** Active data source. */
+export function useMockMode(): boolean {
+  if (import.meta.env.VITE_MOCK === "0") return false;
+  if (import.meta.env.VITE_MOCK === "1") return true;
+  return import.meta.env.DEV;
 }
 
-async function loadMock() {
-  return import("../fixtures/data");
-}
-
-function encodeCursor(start: string, traceId: string): string {
-  const json = JSON.stringify({ s: start, t: traceId });
-  const b64 = btoa(json).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  return b64;
+export function getApiMode(): "mock" | "real" {
+  return useMockMode() ? "mock" : "real";
 }
 
 function authHeaders(): HeadersInit {
@@ -63,16 +51,22 @@ export class ApiError extends Error {
 }
 
 async function realFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    ...init,
-    headers: { ...authHeaders(), ...(init?.headers || {}) },
-  });
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      ...init,
+      headers: { ...authHeaders(), ...(init?.headers || {}) },
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "network error";
+    throw new ApiError(0, msg);
+  }
   if (res.status === 401) {
     clearApiKey();
     throw new ApiError(401, "unauthorized");
   }
   if (!res.ok) {
-    let detail = res.statusText;
+    let detail = res.statusText || `HTTP ${res.status}`;
     try {
       const j = await res.json();
       if (j?.detail) detail = String(j.detail);
@@ -85,243 +79,90 @@ async function realFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
-async function withFallback<T>(real: () => Promise<T>, mock: () => Promise<T>): Promise<T> {
-  if (resolved === "mock" || mode === "mock") {
-    resolved = "mock";
-    return mock();
-  }
-  if (resolved === "real" || mode === "real") {
-    return real();
-  }
-  // auto
-  try {
-    const v = await real();
-    resolved = "real";
-    return v;
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 401) throw e;
-    if (e instanceof ApiError && (e.status === 404 || e.status === 501)) {
-      resolved = "mock";
-      return mock();
-    }
-    // network / other → mock for local SPA without server
-    if (!(e instanceof ApiError)) {
-      resolved = "mock";
-      return mock();
-    }
-    throw e;
-  }
-}
-
-function filterTraces(
-  all: TraceSummary[],
-  params: TraceListParams
-): TraceSummary[] {
-  let list = all.slice();
-  if (params.project) list = list.filter((t) => t.project === params.project);
-  if (params.status) list = list.filter((t) => t.status === params.status);
-  if (params.q) {
-    const q = params.q.toLowerCase();
-    list = list.filter((t) => t.name.toLowerCase().includes(q));
-  }
-  if (params.model) list = list.filter((t) => t.model === params.model);
-  if (params.min_tokens != null) list = list.filter((t) => t.tokens.total >= params.min_tokens!);
-  if (params.min_duration_ms != null) {
-    list = list.filter((t) => t.duration_ms != null && t.duration_ms >= params.min_duration_ms!);
-  }
-  const sort = params.sort || "start_desc";
-  list.sort((a, b) => {
-    if (sort === "duration_desc") return (b.duration_ms || 0) - (a.duration_ms || 0);
-    if (sort === "tokens_desc") return b.tokens.total - a.tokens.total;
-    if (sort === "errors_desc") return b.error_count - a.error_count;
-    return b.start.localeCompare(a.start);
-  });
-  return list;
-}
-
 export async function listProjects(): Promise<ProjectCard[]> {
-  return withFallback(
-    () => realFetch("/api/ui/projects"),
-    async () => (await loadMock()).PROJECTS
-  );
+  if (import.meta.env.DEV || import.meta.env.VITE_MOCK === "1") {
+    if (useMockMode()) return (await import("./mockClient")).listProjects();
+  }
+  return realFetch("/api/ui/projects");
 }
 
 export async function listTraces(params: TraceListParams = {}): Promise<TraceListResponse> {
+  if (import.meta.env.DEV || import.meta.env.VITE_MOCK === "1") {
+    if (useMockMode()) return (await import("./mockClient")).listTraces(params);
+  }
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
   }
   const qstr = qs.toString();
-  return withFallback(
-    () => realFetch(`/api/ui/traces${qstr ? `?${qstr}` : ""}`),
-    async () => {
-      const fx = await loadMock();
-      const all = fx.makeManyTraces(10_000);
-      const filtered = filterTraces(all, params);
-      // Cursor is opaque base64url of {"s","t"} — mock may decode for paging only.
-      let start = 0;
-      if (params.cursor) {
-        try {
-          const pad = params.cursor + "=".repeat((4 - (params.cursor.length % 4)) % 4);
-          const json = JSON.parse(atob(pad.replace(/-/g, "+").replace(/_/g, "/")));
-          const idx = filtered.findIndex((t) => t.trace_id === json.t && t.start === json.s);
-          start = idx >= 0 ? idx + 1 : 0;
-        } catch {
-          start = 0;
-        }
-      }
-      const limit = Math.min(Math.max(params.limit || 50, 1), 200);
-      const page = filtered.slice(start, start + limit);
-      const last = page[page.length - 1];
-      const next =
-        start + limit < filtered.length && last
-          ? encodeCursor(last.start, last.trace_id)
-          : null;
-      return { traces: page, next_cursor: next };
-    }
-  );
+  return realFetch(`/api/ui/traces${qstr ? `?${qstr}` : ""}`);
 }
 
 export async function getTraceSummary(traceId: string): Promise<TraceSummaryResponse> {
-  return withFallback(
-    () => realFetch(`/api/ui/traces/${encodeURIComponent(traceId)}/summary`),
-    async () => {
-      const fx = await loadMock();
-      const s = fx.SUMMARIES[traceId];
-      if (!s) throw new ApiError(404, "trace not found");
-      return s;
-    }
-  );
+  if (import.meta.env.DEV || import.meta.env.VITE_MOCK === "1") {
+    if (useMockMode()) return (await import("./mockClient")).getTraceSummary(traceId);
+  }
+  return realFetch(`/api/ui/traces/${encodeURIComponent(traceId)}/summary`);
 }
 
 export async function getRun(id: string, full = false): Promise<RunDetail> {
+  if (import.meta.env.DEV || import.meta.env.VITE_MOCK === "1") {
+    if (useMockMode()) return (await import("./mockClient")).getRun(id, full);
+  }
   const q = full ? "?full=1" : "";
-  return withFallback(
-    () => realFetch(`/api/ui/runs/${encodeURIComponent(id)}${q}`),
-    async () => {
-      const fx = await loadMock();
-      let run = fx.RUNS[id];
-      if (!run) {
-        // synthesize skinny detail from span summary
-        for (const sum of Object.values(fx.SUMMARIES)) {
-          const row = sum.rows.find((r) => r.id === id);
-          if (row) {
-            run = {
-              id: row.id,
-              parent_run_id: row.parent_run_id,
-              trace_id: sum.trace_id,
-              session_id: "00000000-0000-0000-0000-000000000000",
-              name: row.name,
-              run_type: row.run_type,
-              node: row.node,
-              status: row.status,
-              start_time: row.start_time,
-              end_time: row.end_time,
-              latency_ms: row.latency_ms,
-              self_time_ms: row.self_time_ms,
-              tokens: row.tokens,
-              model: row.model,
-              tags: row.tags,
-              dotted_order: row.dotted_order,
-              inputs: {},
-              outputs: {},
-              extra: {},
-              events: [],
-              serialized: null,
-              error: row.has_error ? "error" : null,
-              attachments: [],
-              cold: !row.payload_hot,
-              truncated: false,
-            };
-            break;
-          }
-        }
-      }
-      if (!run) throw new ApiError(404, "run not found");
-      if (full && run.truncated) {
-        return {
-          ...run,
-          truncated: false,
-          outputs: { ok: false, error: "ticket already closed", full: true, note: "full payload" },
-        };
-      }
-      return run;
-    }
-  );
+  return realFetch(`/api/ui/runs/${encodeURIComponent(id)}${q}`);
 }
 
 export async function getMessages(id: string): Promise<MessagesResponse> {
-  return withFallback(
-    () => realFetch(`/api/ui/runs/${encodeURIComponent(id)}/messages`),
-    async () => {
-      const fx = await loadMock();
-      return fx.MESSAGES[id] || fx.EMPTY_MESSAGES;
-    }
-  );
+  if (import.meta.env.DEV || import.meta.env.VITE_MOCK === "1") {
+    if (useMockMode()) return (await import("./mockClient")).getMessages(id);
+  }
+  return realFetch(`/api/ui/runs/${encodeURIComponent(id)}/messages`);
 }
 
-export async function getStats(params: { project?: string; from?: string; to?: string } = {}): Promise<StatsResponse> {
+export async function getStats(
+  params: { project?: string; from?: string; to?: string } = {}
+): Promise<StatsResponse> {
+  if (import.meta.env.DEV || import.meta.env.VITE_MOCK === "1") {
+    if (useMockMode()) return (await import("./mockClient")).getStats();
+  }
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
     if (v) qs.set(k, v);
   }
   const qstr = qs.toString();
-  return withFallback(
-    () => realFetch(`/api/ui/stats${qstr ? `?${qstr}` : ""}`),
-    async () => ({
-      trace_count: 120,
-      error_rate: 0.04,
-      p50_ms: 820,
-      p95_ms: 4100,
-      tokens: { input: 1_000_000, output: 800_000, total: 1_800_000 },
-      by_day: [{ day: "2026-10-27", traces: 40, errors: 2, tokens: 600000 }],
-      by_model: [{ model: "gpt-4o-mini", calls: 800, tokens: 1500000 }],
-    })
-  );
+  return realFetch(`/api/ui/stats${qstr ? `?${qstr}` : ""}`);
 }
 
 export type StreamHandle = { close: () => void };
 
 export function openTraceStream(
   params: Omit<TraceListParams, "cursor" | "limit" | "sort">,
-  onEvent: (ev: StreamEvent) => void
+  onEvent: (ev: StreamEvent) => void,
+  opts?: { getOpenTraceId?: () => string | null | undefined }
 ): StreamHandle {
-  if (resolved === "mock" || mode === "mock" || (mode === "auto" && resolved !== "real")) {
-    // mock SSE: emit a heartbeat then occasional synthetic traces
-    let n = 0;
-    const hb = window.setInterval(() => onEvent({ type: "heartbeat", data: {} }), 15_000);
-    const tick = window.setInterval(async () => {
-      n++;
-      const fx = await loadMock();
-      const base = fx.TRACES[0];
-      const syn: TraceSummary = {
-        ...base,
-        trace_id: `live0000-0000-4000-8000-${String(n).padStart(12, "0")}`,
-        name: `live_tail_${n}`,
-        start: new Date().toISOString(),
-        end: new Date().toISOString(),
-        duration_ms: 500 + n * 10,
-        status: n % 5 === 0 ? "error" : "success",
-        error_count: n % 5 === 0 ? 1 : 0,
+  if (import.meta.env.DEV || import.meta.env.VITE_MOCK === "1") {
+    if (useMockMode()) {
+      // Synchronous dynamic import pattern isn't available; use a deferred loader.
+      let closed = false;
+      let inner: StreamHandle | null = null;
+      void import("./mockClient").then((m) => {
+        if (closed) return;
+        inner = m.openTraceStream(params, onEvent, opts);
+      });
+      return {
+        close: () => {
+          closed = true;
+          inner?.close();
+        },
       };
-      onEvent({ type: "trace", id: encodeCursor(syn.start, syn.trace_id), data: syn });
-    }, 4000);
-    // mark mock if auto
-    if (mode === "auto" && resolved === null) resolved = "mock";
-    return {
-      close: () => {
-        clearInterval(hb);
-        clearInterval(tick);
-      },
-    };
+    }
   }
 
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
   }
-  const key = getApiKey();
-  // EventSource can't set headers; use fetch-stream for x-api-key
   const ac = new AbortController();
   (async () => {
     try {
@@ -354,7 +195,7 @@ export function openTraceStream(
             });
           else if (event === "heartbeat") onEvent({ type: "heartbeat", data: {} });
         } catch {
-          /* ignore bad event */
+          /* ignore */
         }
         event = "message";
         id = undefined;
@@ -373,9 +214,8 @@ export function openTraceStream(
         }
       }
     } catch {
-      /* aborted or network */
+      /* aborted */
     }
-    void key;
   })();
   return { close: () => ac.abort() };
 }

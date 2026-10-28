@@ -13,6 +13,7 @@ import {
   type UiFilters,
 } from "../lib/filters";
 import { fmtDurMs, fmtInt } from "../lib/format";
+import { ErrorState } from "../components/ErrorState";
 import { indexTree, visibleRows } from "../lib/tree";
 
 export function TracesPage() {
@@ -66,6 +67,9 @@ export function TracesPage() {
     queryKey: ["summary", deepTrace],
     queryFn: () => getTraceSummary(deepTrace!),
     enabled: !!deepTrace,
+    // Live upserts write via setQueryData; never blank the pane on background refetch.
+    placeholderData: (prev) => prev,
+    refetchOnMount: false,
   });
 
   const rows = summaryQ.data?.rows || [];
@@ -236,6 +240,7 @@ export function TracesPage() {
           <TraceList
             filters={filters}
             selectedId={listSel}
+            openTraceId={deepTrace}
             onSelect={setListSel}
             onOpen={openTrace}
           />
@@ -254,7 +259,10 @@ export function TracesPage() {
                 <div style={{ fontFamily: "var(--mono)", fontSize: 11 }}>{deepTrace}</div>
               </div>
             </div>
-            {summaryQ.isLoading && <div className="empty">Loading waterfall…</div>}
+            {summaryQ.isLoading && !summaryQ.data && <div className="empty">Loading waterfall…</div>}
+            {summaryQ.isError && !summaryQ.data && (
+              <ErrorState error={summaryQ.error} onRetry={() => void summaryQ.refetch()} />
+            )}
             {summaryQ.data && (
               <Waterfall
                 rows={summaryQ.data.rows}

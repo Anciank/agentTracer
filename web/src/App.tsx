@@ -6,10 +6,19 @@ import { TracesPage } from "./pages/TracesPage";
 import { HelpOverlay } from "./components/HelpOverlay";
 import { AuthGate } from "./components/AuthGate";
 import { getApiKey } from "./lib/auth";
-import { getApiMode, listProjects, ApiError, forceMock } from "./api/client";
+import { getApiMode, listProjects, ApiError, mocksAllowed } from "./api/client";
 
 const qc = new QueryClient({
-  defaultOptions: { queries: { staleTime: 5_000, retry: 1, refetchOnWindowFocus: false } },
+  defaultOptions: {
+    queries: {
+      staleTime: 5_000,
+      retry: (n, err) => {
+        if (err instanceof ApiError && (err.status === 401 || err.status === 0)) return false;
+        return n < 1;
+      },
+      refetchOnWindowFocus: false,
+    },
+  },
 });
 
 function ThemeToggle() {
@@ -48,6 +57,7 @@ function Shell() {
   const [modeLabel, setModeLabel] = useState(getApiMode());
   const nav = useNavigate();
   const loc = useLocation();
+  const showMockChip = mocksAllowed();
 
   const probe = useCallback(async () => {
     try {
@@ -55,8 +65,7 @@ function Shell() {
       setNeedAuth(false);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
-        if (!getApiKey()) setNeedAuth(true);
-        else setNeedAuth(true);
+        setNeedAuth(true);
       }
     } finally {
       setModeLabel(getApiMode());
@@ -80,7 +89,6 @@ function Shell() {
         setHelp(false);
         return;
       }
-      // From projects: `e` → errors-only traces (newest error path)
       if (e.key === "e" && !typing && loc.pathname === "/") {
         e.preventDefault();
         nav("/traces?status=error");
@@ -102,20 +110,7 @@ function Shell() {
           Traces
         </Link>
         <div className="spacer" />
-        <span className="mode">api: {modeLabel}</span>
-        <button
-          type="button"
-          className="chip"
-          onClick={() => {
-            forceMock();
-            setModeLabel(getApiMode());
-            qc.clear();
-            void probe();
-          }}
-          title="Force mock fixtures"
-        >
-          Mock
-        </button>
+        {showMockChip && <span className="mode">api: {modeLabel}</span>}
         <ThemeToggle />
         <button type="button" className="chip" onClick={() => setHelp(true)}>
           ?

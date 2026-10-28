@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/Anciank/agentTracer/server/internal/auth"
 	"github.com/Anciank/agentTracer/server/internal/config"
@@ -65,16 +64,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /feedback", s.createFeedback)
 	s.mux.HandleFunc("GET /feedback", s.listFeedback)
 
-	// M1 JSON (kept until /api/ui cutover). SPA is preferred when the client asks for HTML.
+	// M1 JSON (kept until /api/ui cutover). HTML navigations get the SPA shell.
 	s.mux.HandleFunc("GET /ui/projects", s.uiProjects)
-	s.mux.HandleFunc("GET /ui/traces", s.uiTracesOrSPA)
-	s.mux.HandleFunc("GET /ui/traces/{id}", s.uiTraceOrSPA)
-	s.mux.HandleFunc("GET /ui/logo.svg", s.uiLogo)
-	s.mux.HandleFunc("GET /ui/favicon.svg", s.uiFavicon)
-	s.mux.HandleFunc("GET /ui/assets/{path...}", s.uiAsset)
-	s.mux.HandleFunc("GET /ui", s.uiIndex)
-	s.mux.HandleFunc("GET /ui/{$}", s.uiIndex)
-	s.mux.HandleFunc("GET /ui/{path...}", s.uiSPA)
+	s.mux.HandleFunc("GET /ui/traces", ui.HTMLOr(s.uiTraces))
+	s.mux.HandleFunc("GET /ui/traces/{id}", ui.HTMLOr(s.uiTrace))
+	ui.Mount(s.mux)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -458,91 +452,6 @@ func (s *Server) listFeedback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, list)
-}
-
-func prefersHTML(r *http.Request) bool {
-	accept := r.Header.Get("Accept")
-	if strings.Contains(accept, "text/html") {
-		return true
-	}
-	return r.Header.Get("Sec-Fetch-Dest") == "document"
-}
-
-func (s *Server) uiIndex(w http.ResponseWriter, r *http.Request) {
-	s.serveSPA(w)
-}
-
-func (s *Server) uiSPA(w http.ResponseWriter, r *http.Request) {
-	// Client-side routes under /ui/* (e.g. /ui/p/support) — never 404 the shell.
-	s.serveSPA(w)
-}
-
-func (s *Server) serveSPA(w http.ResponseWriter) {
-	data, err := ui.Static.ReadFile("static/index.html")
-	if err != nil {
-		http.Error(w, "ui missing", 500)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
-	_, _ = w.Write(data)
-}
-
-func (s *Server) uiLogo(w http.ResponseWriter, r *http.Request) {
-	data, _ := ui.Static.ReadFile("static/logo.svg")
-	w.Header().Set("Content-Type", "image/svg+xml")
-	_, _ = w.Write(data)
-}
-
-func (s *Server) uiFavicon(w http.ResponseWriter, r *http.Request) {
-	data, _ := ui.Static.ReadFile("static/favicon.svg")
-	w.Header().Set("Content-Type", "image/svg+xml")
-	_, _ = w.Write(data)
-}
-
-func (s *Server) uiAsset(w http.ResponseWriter, r *http.Request) {
-	p := r.PathValue("path")
-	if p == "" || strings.Contains(p, "..") {
-		http.NotFound(w, r)
-		return
-	}
-	data, err := ui.Static.ReadFile("static/assets/" + p)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	switch {
-	case strings.HasSuffix(p, ".js"):
-		w.Header().Set("Content-Type", "application/javascript")
-	case strings.HasSuffix(p, ".css"):
-		w.Header().Set("Content-Type", "text/css")
-	case strings.HasSuffix(p, ".svg"):
-		w.Header().Set("Content-Type", "image/svg+xml")
-	case strings.HasSuffix(p, ".map"):
-		w.Header().Set("Content-Type", "application/json")
-	case strings.HasSuffix(p, ".woff2"):
-		w.Header().Set("Content-Type", "font/woff2")
-	default:
-		w.Header().Set("Content-Type", "application/octet-stream")
-	}
-	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	_, _ = w.Write(data)
-}
-
-func (s *Server) uiTracesOrSPA(w http.ResponseWriter, r *http.Request) {
-	if prefersHTML(r) {
-		s.serveSPA(w)
-		return
-	}
-	s.uiTraces(w, r)
-}
-
-func (s *Server) uiTraceOrSPA(w http.ResponseWriter, r *http.Request) {
-	if prefersHTML(r) {
-		s.serveSPA(w)
-		return
-	}
-	s.uiTrace(w, r)
 }
 
 func (s *Server) uiProjects(w http.ResponseWriter, r *http.Request) {
