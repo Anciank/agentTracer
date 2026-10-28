@@ -93,3 +93,33 @@ func TestSplitEdgesMinShare(t *testing.T) {
 		t.Fatalf("vis=%d hid=%d", len(vis), len(hid))
 	}
 }
+
+func TestEdgeErrorRate(t *testing.T) {
+	edges := map[string]*EdgeAccum{
+		"a>b": {From: "a", To: "b", Count: 10, ErrorCount: 2},
+	}
+	vis, _ := SplitEdges(edges, 100, 0)
+	if len(vis) != 1 {
+		t.Fatalf("vis %d", len(vis))
+	}
+	if vis[0]["error_rate"] != 0.2 {
+		t.Fatalf("error_rate %v", vis[0]["error_rate"])
+	}
+}
+
+func TestSelectTopNodesRolledKeys(t *testing.T) {
+	acc := map[string]*NodeAccum{}
+	for i := 0; i < 8; i++ {
+		k := string(rune('a' + i))
+		acc[k] = &NodeAccum{Key: k, Count: 10 - i}
+	}
+	nodes, other := SelectTopNodes(acc, 3)
+	if other == nil {
+		t.Fatal("expected other")
+	}
+	rk, ok := other["rolled_keys"].([]string)
+	if !ok || len(rk) == 0 {
+		t.Fatalf("rolled_keys %v", other["rolled_keys"])
+	}
+	_ = nodes
+}

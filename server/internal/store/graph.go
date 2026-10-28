@@ -543,7 +543,10 @@ func (s *Store) UIGraph(ctx context.Context, opts GraphOpts) (map[string]any, er
 	}
 	visible, hidden := graph.SplitEdges(remapped, traceCount, opts.MinEdgeShare)
 	for _, n := range nodes {
-		delete(n, "rolled_keys") // internal only; not in NodeStats shape
+		// UIBro expand-other needs rolled_keys on __other__; strip elsewhere.
+		if n["key"] != graph.OtherKey {
+			delete(n, "rolled_keys")
+		}
 	}
 
 	generated := time.Now().UTC()
@@ -727,6 +730,105 @@ func (s *Store) UIPaths(ctx context.Context, opts PathsOpts) (map[string]any, er
 		allRoots = total
 	}
 
+	// Previous equal window fingerprints → is_new.
+	prevFrom := from.Add(-to.Sub(from))
+	prevTo := from
+	prevSet := map[string]bool{}
+	if prevRows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT path_fingerprint FROM runs
+		WHERE session_id=$1 AND parent_run_id IS NULL AND trace_id IS NOT NULL
+			AND start_time >= $2 AND start_time < $3
+			AND path_fingerprint IS NOT NULL AND path_fingerprint <> ''`,
+		sessionID, prevFrom, prevTo); err == nil {
+		for prevRows.Next() {
+			var fp string
+			if prevRows.Scan(&fp) == nil {
+				prevSet[fp] = true
+			}
+		}
+		prevRows.Close()
+	}
+
+	fps := make([]string, 0, len(list))
+	for _, p := range list {
+		fps = append(fps, p.fp)
+	}
+
+	// p95 latency per fingerprint (finished roots only).
+	p95By := map[string]*float64{}
+	if len(fps) > 0 {
+		prows, err := s.pool.Query(ctx, `
+			SELECT path_fingerprint,
+				percentile_cont(0.95) WITHIN GROUP (
+					ORDER BY EXTRACT(EPOCH FROM (end_time - start_time)) * 1000)
+					FILTER (WHERE end_time IS NOT NULL AND start_time IS NOT NULL)
+			FROM runs
+			WHERE session_id=$1 AND parent_run_id IS NULL AND trace_id IS NOT NULL
+				AND start_time >= $2 AND start_time < $3
+				AND path_fingerprint = ANY($4)
+			GROUP BY path_fingerprint`, sessionID, from, to, fps)
+		if err != nil {
+			return nil, err
+		}
+		for prows.Next() {
+			var fp string
+			var p95 *float64
+			if err := prows.Scan(&fp, &p95); err != nil {
+				prows.Close()
+				return nil, err
+			}
+			p95By[fp] = p95
+		}
+		prows.Close()
+	}
+
+	// fail_nodes: distinct node keys that errored on traces with each fingerprint.
+	failBy := map[string]map[string]bool{}
+	if len(fps) > 0 {
+		frows, err := s.pool.Query(ctx, `
+			SELECT r.path_fingerprint, c.langgraph_node, c.name, c.run_type,
+				(c.parent_run_id IS NOT NULL AND p.parent_run_id IS NULL) AS direct_child
+			FROM runs r
+			JOIN runs c ON c.trace_id = r.trace_id
+			LEFT JOIN runs p ON p.id = c.parent_run_id
+			WHERE r.session_id=$1 AND r.parent_run_id IS NULL AND r.trace_id IS NOT NULL
+				AND r.start_time >= $2 AND r.start_time < $3
+				AND r.path_fingerprint = ANY($4)
+				AND c.error IS NOT NULL AND c.error <> ''
+				AND c.parent_run_id IS NOT NULL`, sessionID, from, to, fps)
+		if err != nil {
+			return nil, err
+		}
+		for frows.Next() {
+			var fp string
+			var lgNull, nameNull, rtNull *string
+			var direct bool
+			if err := frows.Scan(&fp, &lgNull, &nameNull, &rtNull, &direct); err != nil {
+				frows.Close()
+				return nil, err
+			}
+			lg, name, runType := "", "", ""
+			if lgNull != nil {
+				lg = *lgNull
+			}
+			if nameNull != nil {
+				name = *nameNull
+			}
+			if rtNull != nil {
+				runType = *rtNull
+			}
+			key, _, ok := graph.VisitKey(lg, name, runType, false, direct)
+			if !ok || key == "" {
+				continue
+			}
+			if failBy[fp] == nil {
+				failBy[fp] = map[string]bool{}
+			}
+			failBy[fp][key] = true
+		}
+		frows.Close()
+	}
+
 	paths := make([]map[string]any, 0, len(list))
 	for _, p := range list {
 		steps := graph.ParseFingerprint(p.fp)
@@ -742,12 +844,26 @@ func (s *Store) UIPaths(ctx context.Context, opts PathsOpts) (map[string]any, er
 		for _, st := range steps {
 			stepMaps = append(stepMaps, map[string]any{"key": st.Key, "repeat": st.Repeat})
 		}
+		failNodes := []string{}
+		if m := failBy[p.fp]; m != nil {
+			for k := range m {
+				failNodes = append(failNodes, k)
+			}
+			sort.Strings(failNodes)
+		}
+		var p95 any
+		if v := p95By[p.fp]; v != nil {
+			p95 = int(*v + 0.5)
+		}
 		paths = append(paths, map[string]any{
 			"fingerprint": p.fp,
 			"label":       graph.LabelFromSteps(steps),
 			"count":       p.count,
 			"share":       graphRound4(share),
 			"error_rate":  graphRound4(er),
+			"p95_ms":      p95,
+			"fail_nodes":  failNodes,
+			"is_new":      !prevSet[p.fp],
 			"steps":       stepMaps,
 		})
 	}

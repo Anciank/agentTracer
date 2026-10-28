@@ -76,9 +76,13 @@ func (e *EdgeAccum) toStats(traceCount int) map[string]any {
 		repAvg = round2(float64(s) / float64(len(e.Repeats)))
 		repMax = mx
 	}
+	er := 0.0
+	if e.Count > 0 {
+		er = float64(e.ErrorCount) / float64(e.Count)
+	}
 	return map[string]any{
 		"from": e.From, "to": e.To, "count": e.Count, "share": round4(share),
-		"avg_ms": avg, "p95_ms": p95, "error_count": e.ErrorCount,
+		"avg_ms": avg, "p95_ms": p95, "error_count": e.ErrorCount, "error_rate": round4(er),
 		"loop": e.Loop, "repeat_avg": repAvg, "repeat_max": repMax,
 	}
 }
