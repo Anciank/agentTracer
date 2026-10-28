@@ -13,6 +13,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// ErrProjectNotFound is returned when a UI project id/name does not exist.
+var ErrProjectNotFound = errors.New("project not found")
+
 // GraphOpts controls GET .../graph aggregation.
 type GraphOpts struct {
 	Project      string
@@ -383,20 +386,7 @@ func (s *Store) UIGraph(ctx context.Context, opts GraphOpts) (map[string]any, er
 		return nil, err
 	}
 	if sessionID == uuid.Nil {
-		generated := time.Now().UTC()
-		return map[string]any{
-			"project": opts.Project,
-			"window": map[string]any{
-				"from":   from.Format(time.RFC3339Nano),
-				"to":     to.Format(time.RFC3339Nano),
-				"preset": win,
-			},
-			"trace_count":  0,
-			"nodes":        []map[string]any{},
-			"edges":        []map[string]any{},
-			"edges_hidden": []map[string]any{},
-			"generated_at": generated.Format(time.RFC3339Nano),
-		}, nil
+		return nil, ErrProjectNotFound
 	}
 
 	// Roots in window.
@@ -675,15 +665,7 @@ func (s *Store) UIPaths(ctx context.Context, opts PathsOpts) (map[string]any, er
 		return nil, err
 	}
 	if sessionID == uuid.Nil {
-		return map[string]any{
-			"project": opts.Project,
-			"window": map[string]any{
-				"from":   from.Format(time.RFC3339Nano),
-				"to":     to.Format(time.RFC3339Nano),
-				"preset": win,
-			},
-			"paths": []map[string]any{},
-		}, nil
+		return nil, ErrProjectNotFound
 	}
 
 	rows, err := s.pool.Query(ctx, `
@@ -763,10 +745,27 @@ func (s *Store) UIPaths(ctx context.Context, opts PathsOpts) (map[string]any, er
 	}, nil
 }
 
-// LookupSessionID returns the session UUID for a project name, or uuid.Nil if missing.
-func (s *Store) LookupSessionID(ctx context.Context, name string) (uuid.UUID, error) {
+// LookupSessionID resolves a project path id that may be either a session UUID or a
+// session name. When the value parses as a UUID, an exact id match is preferred;
+// if no row has that id, it falls back to treating the value as a name.
+// Returns (uuid.Nil, nil) when nothing matches (callers that need 404 should check).
+func (s *Store) LookupSessionID(ctx context.Context, idOrName string) (uuid.UUID, error) {
+	if idOrName == "" {
+		return uuid.Nil, nil
+	}
+	if uid, err := uuid.Parse(idOrName); err == nil {
+		var id uuid.UUID
+		err := s.pool.QueryRow(ctx, `SELECT id FROM sessions WHERE id=$1`, uid).Scan(&id)
+		if err == nil {
+			return id, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return uuid.Nil, err
+		}
+		// fall through to name match (session name might coincidentally be a UUID string)
+	}
 	var id uuid.UUID
-	err := s.pool.QueryRow(ctx, `SELECT id FROM sessions WHERE name=$1`, name).Scan(&id)
+	err := s.pool.QueryRow(ctx, `SELECT id FROM sessions WHERE name=$1`, idOrName).Scan(&id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return uuid.Nil, nil

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -775,6 +776,10 @@ func (s *Server) apiUIGraph(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := s.store.UIGraph(r.Context(), opts)
 	if err != nil {
+		if errors.Is(err, store.ErrProjectNotFound) {
+			writeJSON(w, 404, map[string]any{"detail": "not found"})
+			return
+		}
 		writeJSON(w, 500, map[string]any{"detail": err.Error()})
 		return
 	}
@@ -825,6 +830,10 @@ func (s *Server) apiUIPaths(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := s.store.UIPaths(r.Context(), opts)
 	if err != nil {
+		if errors.Is(err, store.ErrProjectNotFound) {
+			writeJSON(w, 404, map[string]any{"detail": "not found"})
+			return
+		}
 		writeJSON(w, 500, map[string]any{"detail": err.Error()})
 		return
 	}
