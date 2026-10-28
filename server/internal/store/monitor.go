@@ -130,31 +130,6 @@ func (s *Store) UIMonitor(ctx context.Context, opts MonitorOpts) (map[string]any
 		return nil, "", err
 	}
 
-	type rootRow struct {
-		traceID uuid.UUID
-		start   time.Time
-		end     *time.Time
-		err     *string
-	}
-	rows, err := s.pool.Query(ctx, `
-		SELECT trace_id, start_time, end_time, error
-		FROM runs
-		WHERE session_id=$1 AND parent_run_id IS NULL AND trace_id IS NOT NULL
-			AND start_time >= $2 AND start_time < $3`, sessionID, from, to)
-	if err != nil {
-		return nil, "", err
-	}
-	var roots []rootRow
-	for rows.Next() {
-		var r rootRow
-		if err := rows.Scan(&r.traceID, &r.start, &r.end, &r.err); err != nil {
-			rows.Close()
-			return nil, "", err
-		}
-		roots = append(roots, r)
-	}
-	rows.Close()
-
 	starts := bucketStarts(from, to, spec.Dur)
 	type bAcc struct {
 		success, errN, total int
@@ -169,19 +144,50 @@ func (s *Store) UIMonitor(ctx context.Context, opts MonitorOpts) (map[string]any
 		return int(t.Sub(from) / spec.Dur)
 	}
 
-	traceCount := len(roots)
+	// Roots + per-trace llm tokens in one pass (lateral on covering idx_runs_trace_llm_tokens).
+	rows, err := s.pool.Query(ctx, `
+		SELECT r.trace_id, r.start_time, r.end_time, r.error,
+			COALESCE(t.i, 0), COALESCE(t.o, 0), COALESCE(t.tot, 0)
+		FROM runs r
+		LEFT JOIN LATERAL (
+			SELECT SUM(c.input_tokens)::bigint AS i,
+				SUM(c.output_tokens)::bigint AS o,
+				SUM(c.total_tokens)::bigint AS tot
+			FROM runs c
+			WHERE c.trace_id = r.trace_id AND c.run_type = 'llm'
+		) t ON true
+		WHERE r.session_id=$1 AND r.parent_run_id IS NULL AND r.trace_id IS NOT NULL
+			AND r.start_time >= $2 AND r.start_time < $3`, sessionID, from, to)
+	if err != nil {
+		return nil, "", err
+	}
+	traceCount := 0
 	successCount, errorCount := 0, 0
 	var headerLats []float64
-	for _, r := range roots {
-		bi := bucketIndex(r.start)
-		isErr := r.err != nil && *r.err != ""
+	var tokIn, tokOut, tokTot int64
+	for rows.Next() {
+		var tid uuid.UUID
+		var start time.Time
+		var end *time.Time
+		var errStr *string
+		var in, out, tot int64
+		if err := rows.Scan(&tid, &start, &end, &errStr, &in, &out, &tot); err != nil {
+			rows.Close()
+			return nil, "", err
+		}
+		traceCount++
+		tokIn += in
+		tokOut += out
+		tokTot += tot
+		bi := bucketIndex(start)
+		isErr := errStr != nil && *errStr != ""
 		if isErr {
 			errorCount++
-		} else if r.end != nil {
+		} else if end != nil {
 			successCount++
 		}
-		if r.end != nil {
-			ms := float64(r.end.Sub(r.start).Milliseconds())
+		if end != nil {
+			ms := float64(end.Sub(start).Milliseconds())
 			headerLats = append(headerLats, ms)
 			if bi >= 0 && bi < len(acc) {
 				acc[bi].lats = append(acc[bi].lats, ms)
@@ -189,46 +195,17 @@ func (s *Store) UIMonitor(ctx context.Context, opts MonitorOpts) (map[string]any
 		}
 		if bi >= 0 && bi < len(acc) {
 			acc[bi].total++
+			acc[bi].in += in
+			acc[bi].out += out
+			acc[bi].tot += tot
 			if isErr {
 				acc[bi].errN++
-			} else if r.end != nil {
+			} else if end != nil {
 				acc[bi].success++
 			}
 		}
 	}
-
-	// Tokens: all runs belonging to roots that start in the window, attributed to the root's bucket.
-	tokRows, err := s.pool.Query(ctx, `
-		SELECT r.trace_id, r.start_time,
-			COALESCE(SUM(c.input_tokens),0), COALESCE(SUM(c.output_tokens),0), COALESCE(SUM(c.total_tokens),0)
-		FROM runs r
-		JOIN runs c ON c.trace_id = r.trace_id
-		WHERE r.session_id=$1 AND r.parent_run_id IS NULL AND r.trace_id IS NOT NULL
-			AND r.start_time >= $2 AND r.start_time < $3
-		GROUP BY r.trace_id, r.start_time`, sessionID, from, to)
-	if err != nil {
-		return nil, "", err
-	}
-	var tokIn, tokOut, tokTot int64
-	for tokRows.Next() {
-		var tid uuid.UUID
-		var start time.Time
-		var in, out, tot int64
-		if err := tokRows.Scan(&tid, &start, &in, &out, &tot); err != nil {
-			tokRows.Close()
-			return nil, "", err
-		}
-		tokIn += in
-		tokOut += out
-		tokTot += tot
-		bi := bucketIndex(start)
-		if bi >= 0 && bi < len(acc) {
-			acc[bi].in += in
-			acc[bi].out += out
-			acc[bi].tot += tot
-		}
-	}
-	tokRows.Close()
+	rows.Close()
 
 	seriesT := make([]map[string]any, 0, len(starts))
 	seriesL := make([]map[string]any, 0, len(starts))
@@ -256,14 +233,30 @@ func (s *Store) UIMonitor(ctx context.Context, opts MonitorOpts) (map[string]any
 		})
 	}
 
-	byModel, err := s.monitorByModel(ctx, sessionID, from, to, opts.Limit)
-	if err != nil {
-		return nil, "", err
+	// by_model / by_tool in parallel — session covering indexes, child start_time window.
+	type aggResult struct {
+		rows []map[string]any
+		err  error
 	}
-	byTool, err := s.monitorByTool(ctx, sessionID, from, to, opts.Limit)
-	if err != nil {
-		return nil, "", err
+	modelCh := make(chan aggResult, 1)
+	toolCh := make(chan aggResult, 1)
+	go func() {
+		r, e := s.monitorByModel(ctx, sessionID, from, to, opts.Limit)
+		modelCh <- aggResult{r, e}
+	}()
+	go func() {
+		r, e := s.monitorByTool(ctx, sessionID, from, to, opts.Limit)
+		toolCh <- aggResult{r, e}
+	}()
+	modelRes := <-modelCh
+	toolRes := <-toolCh
+	if modelRes.err != nil {
+		return nil, "", modelRes.err
 	}
+	if toolRes.err != nil {
+		return nil, "", toolRes.err
+	}
+	byModel, byTool := modelRes.rows, toolRes.rows
 
 	var headerP50, headerP99 any
 	if len(headerLats) > 0 {
@@ -315,6 +308,8 @@ func zeroSeries(starts []time.Time, dur time.Duration) ([]map[string]any, []map[
 }
 
 func (s *Store) monitorByModel(ctx context.Context, sessionID uuid.UUID, from, to time.Time, limit int) ([]map[string]any, error) {
+	// Child start_time window + session covering index (idx_runs_session_llm_monitor).
+	// For LangGraph multipart seeds, child stamps align with the root window.
 	rows, err := s.pool.Query(ctx, `
 		SELECT COALESCE(NULLIF(c.model, ''), '(unknown)') AS model,
 			COUNT(*)::int AS calls,
@@ -329,9 +324,8 @@ func (s *Store) monitorByModel(ctx context.Context, sessionID uuid.UUID, from, t
 				ORDER BY EXTRACT(EPOCH FROM (c.end_time - c.start_time)) * 1000)
 				FILTER (WHERE c.end_time IS NOT NULL AND c.start_time IS NOT NULL) AS p99
 		FROM runs c
-		INNER JOIN runs r ON r.trace_id = c.trace_id AND r.parent_run_id IS NULL
-		WHERE r.session_id=$1 AND r.start_time >= $2 AND r.start_time < $3
-			AND c.run_type = 'llm'
+		WHERE c.session_id=$1 AND c.run_type = 'llm'
+			AND c.start_time >= $2 AND c.start_time < $3
 		GROUP BY 1
 		ORDER BY calls DESC, model ASC
 		LIMIT $4`, sessionID, from, to, limit)
@@ -398,9 +392,8 @@ func (s *Store) monitorByTool(ctx context.Context, sessionID uuid.UUID, from, to
 				ORDER BY EXTRACT(EPOCH FROM (c.end_time - c.start_time)) * 1000)
 				FILTER (WHERE c.end_time IS NOT NULL AND c.start_time IS NOT NULL) AS p99
 		FROM runs c
-		INNER JOIN runs r ON r.trace_id = c.trace_id AND r.parent_run_id IS NULL
-		WHERE r.session_id=$1 AND r.start_time >= $2 AND r.start_time < $3
-			AND c.run_type = 'tool'
+		WHERE c.session_id=$1 AND c.run_type = 'tool'
+			AND c.start_time >= $2 AND c.start_time < $3
 		GROUP BY 1
 		ORDER BY calls DESC, tool ASC
 		LIMIT $4`, sessionID, from, to, limit)
