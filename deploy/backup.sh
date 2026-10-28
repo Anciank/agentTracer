@@ -42,35 +42,57 @@ if [[ "$DOW" == "7" ]]; then
   echo "[backup] weekly copy -> $WEEKLY"
 fi
 
-# Retention
-ls -1t "$ROOT/postgres/daily"/agenttracer-*.sql.gz 2>/dev/null | tail -n +8 | while read -r f; do
-  echo "[backup] prune daily $f"; rm -f "$f"
-done
-ls -1t "$ROOT/postgres/weekly"/agenttracer-*.sql.gz 2>/dev/null | tail -n +5 | while read -r f; do
-  echo "[backup] prune weekly $f"; rm -f "$f"
-done
+prune_keep() {
+  # $1=dir glob pattern, $2=keep count
+  local dir="$1" keep="$2"
+  mapfile -t files < <(find "$dir" -maxdepth 1 -type f -name 'agenttracer-*.sql.gz' -printf '%T@ %p\n' 2>/dev/null | sort -rn | awk '{print $2}')
+  local i=0
+  for f in "${files[@]:-}"; do
+    [[ -z "$f" ]] && continue
+    i=$((i + 1))
+    if (( i > keep )); then
+      echo "[backup] prune $f"
+      rm -f "$f"
+    fi
+  done
+}
+
+prune_keep "$ROOT/postgres/daily" 7
+prune_keep "$ROOT/postgres/weekly" 4
 
 # Silo / MinIO mirror via ephemeral mc client on the docker network
 SILO_DEST="$ROOT/silo/$STAMP"
 mkdir -p "$SILO_DEST"
-NET="$(docker inspect "$MINIO_CONTAINER" -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}' | awk '{print $1}')"
-MINIO_IP="$(docker inspect "$MINIO_CONTAINER" -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' | awk '{print $1}')"
-if [[ -n "$NET" && -n "$MINIO_IP" ]]; then
-  echo "[backup] mirroring s3://$S3_BUCKET from $MINIO_IP via network $NET"
-  docker run --rm --network "$NET" \
-    -e MC_HOST_local="http://${S3_ACCESS}:${S3_SECRET}@${MINIO_IP}:9000" \
-    -v "$SILO_DEST:/out" \
-    minio/mc:RELEASE.2025-08-13T08-35-41Z \
-    mirror --quiet "local/${S3_BUCKET}" /out || {
+if docker inspect "$MINIO_CONTAINER" >/dev/null 2>&1; then
+  NET="$(docker inspect "$MINIO_CONTAINER" -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' | awk '{print $1}')"
+  MINIO_IP="$(docker inspect "$MINIO_CONTAINER" -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' | awk '{print $1}')"
+  if [[ -n "${NET:-}" && -n "${MINIO_IP:-}" ]]; then
+    echo "[backup] mirroring s3://$S3_BUCKET from $MINIO_IP via network $NET"
+    if ! docker run --rm --network "$NET" \
+      -e "MC_HOST_local=http://${S3_ACCESS}:${S3_SECRET}@${MINIO_IP}:9000" \
+      -v "$SILO_DEST:/out" \
+      minio/mc:RELEASE.2025-08-13T08-35-41Z \
+      mirror --quiet "local/${S3_BUCKET}" /out; then
       echo "[backup] WARN: silo mirror failed (bucket empty or mc issue); continuing"
-    }
-  # Retention: keep last 7 silo stamp dirs
-  ls -1dt "$ROOT/silo"/*/ 2>/dev/null | tail -n +8 | while read -r d; do
-    echo "[backup] prune silo $d"; rm -rf "$d"
-  done
+    fi
+  else
+    echo "[backup] WARN: could not resolve minio network/ip; skipped silo mirror"
+  fi
 else
-  echo "[backup] WARN: could not resolve minio network/ip; skipped silo mirror"
+  echo "[backup] WARN: minio container $MINIO_CONTAINER not found; skipped silo mirror"
 fi
+
+# Retention: keep last 7 silo stamp dirs
+mapfile -t sdirs < <(find "$ROOT/silo" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null | sort -rn | awk '{print $2}')
+si=0
+for d in "${sdirs[@]:-}"; do
+  [[ -z "$d" ]] && continue
+  si=$((si + 1))
+  if (( si > 7 )); then
+    echo "[backup] prune silo $d"
+    rm -rf "$d"
+  fi
+done
 
 echo "[backup] done $STAMP"
 echo "$DUMP"
