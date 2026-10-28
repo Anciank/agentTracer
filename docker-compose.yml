@@ -39,6 +39,8 @@ services:
     restart: unless-stopped
 
   app:
+    # Explicit local name — never pgsty/silo — so build/rollback cannot retag third-party images.
+    image: agenttracer-app:local
     build:
       context: .
       dockerfile: deploy/Dockerfile
