@@ -194,7 +194,7 @@ export function TracesPage() {
         });
         return;
       }
-      if (/^[1-7]$/.test(e.key) && !typing) {
+      if (/^[1-8]$/.test(e.key) && !typing) {
         setTab(Number(e.key) - 1);
       }
     }
@@ -207,6 +207,7 @@ export function TracesPage() {
       <div className="filters">
         <input
           id="trace-search"
+          key={filters.q || ""}
           type="search"
           placeholder="Search name / error…"
           defaultValue={filters.q || ""}
@@ -345,6 +346,30 @@ export function TracesPage() {
         {deepTrace && (
           <div className="pane">
             <RunDetail span={selectedSpan} tabIndex={tab} onTab={setTab} />
+          </div>
+        )}
+
+        {!deepTrace && (
+          <div className="pane">
+            <div className="detail">
+              <div className="detail-empty">
+                <h3>Click a row to open it</h3>
+                <p>Select a trace in the list. Filters stay in the URL — back/forward keep them.</p>
+                <div className="keys" aria-hidden="true">
+                  <kbd>j</kbd>
+                  <kbd>k</kbd>
+                  <span className="hint">move</span>
+                  <kbd>Enter</kbd>
+                  <span className="hint">open</span>
+                  <kbd>Esc</kbd>
+                  <span className="hint">close</span>
+                  <kbd>/</kbd>
+                  <span className="hint">search</span>
+                  <kbd>e</kbd>
+                  <span className="hint">errors</span>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>

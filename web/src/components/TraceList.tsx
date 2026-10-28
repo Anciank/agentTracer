@@ -327,6 +327,8 @@ export function TraceList({
                       </span>
                     ) : null}
                   </div>
+                  {/* Slot for CodeBro2: first user msg + last reply preview (keep 52px). */}
+                  <div className="tpreview" aria-hidden="true" />
                 </div>
               </div>
             );
