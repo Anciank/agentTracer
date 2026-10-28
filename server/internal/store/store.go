@@ -414,6 +414,10 @@ func (s *Store) UpsertRun(ctx context.Context, payload map[string]any, op string
 		return err
 	}
 	s.publishRun(ctx, *runID, op)
+	// M3.5: refresh path_fingerprint when root is finished (incl. late child PATCHes).
+	if traceID != nil {
+		_ = s.RefreshPathFingerprint(ctx, *traceID)
+	}
 	return nil
 }
 

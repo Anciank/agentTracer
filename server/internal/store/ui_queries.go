@@ -26,6 +26,11 @@ type TraceListOpts struct {
 	Limit         int
 	CursorStart   *time.Time
 	CursorTraceID string
+	// M3.5 Agent-map filters (compose with existing; apply after root fetch).
+	Node     string // node_key exact
+	NodeFail string // node_key that must have an error visit
+	Edge     string // "from>to"
+	Path     string // path_fingerprint exact
 }
 
 type cursorPayload struct {
@@ -215,6 +220,11 @@ func (s *Store) UIListTraces(ctx context.Context, opts TraceListOpts) ([]map[str
 		args = append(args, *opts.CursorStart, opts.CursorTraceID)
 		n += 2
 	}
+	if opts.Path != "" {
+		where = append(where, fmt.Sprintf(`r.path_fingerprint=$%d`, n))
+		args = append(args, opts.Path)
+		n++
+	}
 
 	order := "r.start_time DESC NULLS LAST, r.trace_id DESC"
 	switch opts.Sort {
@@ -242,14 +252,14 @@ func (s *Store) UIListTraces(ctx context.Context, opts TraceListOpts) ([]map[str
 	defer rows.Close()
 
 	type root struct {
-		traceID            uuid.UUID
+		traceID             uuid.UUID
 		name, status, model string
-		project            *string
-		start              *time.Time
-		end                *time.Time
-		err                *string
-		tok, inTok, outTok int
-		sessionID          *uuid.UUID
+		project             *string
+		start               *time.Time
+		end                 *time.Time
+		err                 *string
+		tok, inTok, outTok  int
+		sessionID           *uuid.UUID
 	}
 	var roots []root
 	for rows.Next() {
@@ -293,6 +303,24 @@ func (s *Store) UIListTraces(ctx context.Context, opts TraceListOpts) ([]map[str
 		if opts.MinDurationMs > 0 {
 			if dm, ok := sum["duration_ms"].(int); !ok || dm < opts.MinDurationMs {
 				continue
+			}
+		}
+		if opts.Node != "" || opts.NodeFail != "" || opts.Edge != "" {
+			visits, err := s.loadTraceVisits(ctx, rr.traceID)
+			if err != nil {
+				return nil, "", err
+			}
+			if opts.Node != "" && !TraceVisitsMatch(visits, opts.Node, false) {
+				continue
+			}
+			if opts.NodeFail != "" && !TraceVisitsMatch(visits, opts.NodeFail, true) {
+				continue
+			}
+			if opts.Edge != "" {
+				parts := strings.SplitN(opts.Edge, ">", 2)
+				if len(parts) != 2 || !TraceHasEdge(visits, parts[0], parts[1]) {
+					continue
+				}
 			}
 		}
 		out = append(out, sum)
