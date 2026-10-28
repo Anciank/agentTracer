@@ -1,0 +1,67 @@
+# Sized for ~1.9GB VPS: PG 128MB shared_buffers, S3-compat (silo/MinIO fork), app slim.
+# Note: upstream minio/minio was removed from Docker Hub; pgsty/silo is S3/MINIO_* compatible.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: agenttracer
+      POSTGRES_PASSWORD: agenttracer
+      POSTGRES_DB: agenttracer
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - max_connections=50
+      - -c
+      - effective_cache_size=256MB
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agenttracer"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  minio:
+    image: docker.io/pgsty/silo:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - miniodata:/data
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "1984:1984"
+    environment:
+      AGENTTRACER_LISTEN: ":1984"
+      AGENTTRACER_DATABASE_URL: postgres://agenttracer:agenttracer@postgres:5432/agenttracer?sslmode=disable
+      AGENTTRACER_API_KEY_FILE: /run/secrets/api_key
+      AGENTTRACER_S3_ENDPOINT: http://minio:9000
+      AGENTTRACER_S3_BUCKET: agenttracer
+      AGENTTRACER_S3_ACCESS_KEY: minioadmin
+      AGENTTRACER_S3_SECRET_KEY: minioadmin
+      AGENTTRACER_S3_PATH_STYLE: "true"
+      AGENTTRACER_HOT_RETENTION_DAYS: "14"
+      AGENTTRACER_COLD_RETENTION_DAYS: "180"
+    volumes:
+      - ./secrets/api_key:/run/secrets/api_key:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  miniodata:

@@ -1,0 +1,1341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" type="image/svg+xml" href="/ui/favicon.svg">
+<title>agentTracer · waterfall</title>
+<script>
+  /* Before the first paint, so a dark-theme reader never sees a white flash.
+     Light is the default: no stored choice means light, whatever the OS says. */
+  try {
+    document.documentElement.dataset.theme =
+      localStorage.getItem('agentTracer.theme') === 'dark' ? 'dark' : 'light';
+  } catch (e) { document.documentElement.dataset.theme = 'light'; }
+</script>
+<style>
+  :root {
+    color-scheme: light;
+
+    /* Apple's system grays. The chrome recedes onto the gray plane and the work
+       itself sits on white, so the only saturated colour in the frame is the
+       accent and the trace data. */
+    --bg:           #ffffff;
+    --panel:        #f5f5f7;
+    --raise:        #ffffff;
+    --hover:        #f5f5f7;   /* hover on the white content plane */
+    --hover-chrome: #e8e8ed;   /* hover on the gray chrome */
+    --sel:          #e5f0fe;
+
+    --text:  #1d1d1f;
+    --muted: #6e6e73;
+
+    --border:   #d2d2d7;  /* structural: panel edges, ruler, section breaks */
+    --hairline: #e8e8ed;  /* row separators, lighter than structural edges */
+    --guide:    #d3d3d8;  /* hierarchy lines: light, but present */
+
+    /* Toolbar controls are filled, not outlined. Four 3:1 outlines in one bar read
+       as a wireframe, so these are identified by their label or glyph plus their
+       hover and focus states; the focus ring keeps its full contrast. */
+    --chip:        rgba(11, 11, 12, .05);
+    --chip-hover:  rgba(11, 11, 12, .09);
+    --chip-active: rgba(11, 11, 12, .13);
+    --menu-shadow: 0 12px 32px rgba(0, 0, 0, .14), 0 2px 6px rgba(0, 0, 0, .06);
+    /* Masked, so the colour comes from a token instead of being baked in. */
+    --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+    --accent:     #0071e3;
+    --accent-ink: #0062cc;      /* the accent dark enough to be text */
+    --focus:      #0071e3;
+    --error:      #d70015;
+    --error-bg:   #fdeceb;
+
+    /* Apple's system palette, darkened only where the stock tone is too light to
+       read as a graphic on white. The type name is printed on every row, so the
+       dot is never the only signal. */
+    --chain:     #0071e3;
+    --llm:       #5e5ce6;
+    --tool:      #248a3d;
+    --retriever: #0e7c86;
+    --embedding: #b25000;
+    --prompt:    #8e8e93;
+    --parser:    #8944ab;
+    --unknown:   #8e8e93;
+
+    --row-h: 26px;
+    --grid:  minmax(180px, 300px) 62px 78px 1fr;
+    --r-sm:  6px;
+    --ease:  cubic-bezier(.32, .72, 0, 1);
+
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
+            "Segoe UI", Roboto, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+    /* Glass. It only ever reads as glass if there is variation behind it, so a
+       whisper of ambient field sits under the chrome and the chrome lets it
+       through: the content plane stays solid, the chrome is translucent. */
+    --glass:     rgba(255, 255, 255, .60);
+    --glass-bar: rgba(255, 255, 255, .78);   /* sticky bars sit over busy content */
+    --blur:      16px;
+    --field:     linear-gradient(168deg, #e2e8f2 0%, #ffffff 60%);
+    --header-h:  52px;
+  }
+
+  /* Dark is a second theme, not the light one inverted: black is the floor here,
+     so the content plane sits *below* the chrome instead of above it, borders
+     become light instead of dark, and every run colour is re-cut to read against
+     black rather than against paper. */
+  [data-theme="dark"] {
+    color-scheme: dark;
+
+    --bg:           #000000;
+    --panel:        #0a0a0a;
+    --raise:        #0a0a0a;
+    --hover:        #161616;
+    --hover-chrome: #1a1a1a;
+    --sel:          #10243c;
+
+    --text:  #ededed;
+    --muted: #a1a1a1;
+
+    --border:   #262626;
+    --hairline: #1a1a1a;
+    --guide:    #333333;
+
+    --chip:        rgba(255, 255, 255, .07);
+    --chip-hover:  rgba(255, 255, 255, .12);
+    --chip-active: rgba(255, 255, 255, .18);
+    --menu-shadow: 0 12px 32px rgba(0, 0, 0, .7), 0 0 0 1px rgba(255, 255, 255, .05);
+
+    --accent:     #3291ff;
+    --accent-ink: #6cb6ff;
+    --focus:      #3291ff;
+    --error:      #ff6166;
+    --error-bg:   #2a1113;
+
+    --chain:     #3b9dff;
+    --llm:       #a78bfa;
+    --tool:      #4ade80;
+    --retriever: #2dd4bf;
+    --embedding: #f5a623;
+    --prompt:    #a1a1a1;
+    --parser:    #d8b4fe;
+    --unknown:   #a1a1a1;
+
+    --glass:     rgba(9, 9, 9, .62);
+    --glass-bar: rgba(0, 0, 0, .72);
+    --blur:      16px;
+    --field:     linear-gradient(168deg, #1b222c 0%, #000000 60%);
+  }
+  /* The mark is a single ink shape, so inverting it is exact rather than a
+     compromise: one file stays the source of truth for the geometry. */
+  [data-theme="dark"] header h1 .mark { filter: brightness(0) invert(1); }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  /* Tags the overscroll area too, so there is no white band under a dark page. */
+  html { background: var(--bg); }
+  body {
+    /* The ambient field only ever shows through the translucent chrome. */
+    background-color: var(--bg); background-image: var(--field);
+    color: var(--text);
+    font: 13px/1.5 var(--sans);
+    -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+    overflow: hidden;
+  }
+
+  /* One control language for the toolbar: a soft fill, no outline, and a label
+     or glyph that carries the meaning. One shared height keeps the bar on
+     rhythm, which the previous mix of bordered pills never was. */
+  button, select {
+    font: inherit; color: var(--text); background: var(--chip);
+    border: 0; border-radius: var(--r-sm); height: 28px; padding: 0 11px;
+    cursor: pointer;
+    transition: background-color .15s var(--ease), color .15s var(--ease);
+  }
+  button:hover, select:hover { background: var(--chip-hover); }
+  button:active, select:active { background: var(--chip-active); }
+  button:focus-visible, select:focus-visible,
+  .tcard:focus-visible, .row:focus-visible {
+    outline: 2px solid var(--focus); outline-offset: 2px;
+  }
+
+  /* Floated over the panes rather than stacked above them: the trace list and the
+     run detail scroll up underneath, which is the only reason a backdrop blur
+     here shows anything at all. The panes' scroll containers pad their content
+     down by the header height to make room. */
+  header {
+    position: absolute; top: 0; left: 0; right: 0; height: var(--header-h); z-index: 10;
+    display: flex; align-items: center; gap: 14px;
+    padding: 0 14px 0 12px; border-bottom: 1px solid var(--border);
+    background: var(--glass);
+    -webkit-backdrop-filter: blur(var(--blur)) saturate(180%);
+    backdrop-filter: blur(var(--blur)) saturate(180%);
+  }
+  /* Identity left, tools right: the filter and refresh used to crowd the wordmark
+     immediately after it, which made four controls read as one grey block. */
+  header .tools { display: flex; align-items: center; gap: 6px; flex: none; }
+  header .stat { margin-left: 4px; padding-right: 4px; }
+
+  /* The dropdown, repainted. `appearance: base-select` promotes the popup to a
+     real element the page can style, without giving up the keyboard handling and
+     screen-reader semantics of a native <select>. Browsers that do not know it
+     drop the whole block and keep their own menu, so this is a pure upgrade. */
+  @supports (appearance: base-select) {
+    #project, #project::picker(select) { appearance: base-select; }
+    /* base-select makes the select a flex container. Without centring, a
+       fixed-height picker icon lands at the top of the chip instead of the middle,
+       because align-items: stretch only centres items whose size is auto. */
+    #project { padding-right: 8px; align-items: center; }
+    /* Replace the UA's filled triangle. Masking rather than a background image so
+       the chevron keeps --muted and stays right in both themes. */
+    #project::picker-icon {
+      content: ''; width: 10px; height: 6px; margin-left: 5px; background: var(--muted);
+      -webkit-mask: var(--chevron) center / contain no-repeat;
+      mask: var(--chevron) center / contain no-repeat;
+      transition: transform .16s var(--ease);
+    }
+    #project:open::picker-icon { transform: rotate(180deg); }
+    #project::picker(select) {
+      margin-top: 7px; padding: 6px; border-radius: 12px;
+      background: var(--raise); border: 1px solid var(--border);
+      box-shadow: var(--menu-shadow);
+    }
+    #project option { padding: 7px 10px; border-radius: var(--r-sm); color: var(--text); }
+    #project option:hover { background: var(--chip-hover); }
+    #project option:checked {
+      background: var(--sel); color: var(--accent-ink); font-weight: 600;
+    }
+    #project option::checkmark { color: var(--accent-ink); }
+  }
+  /* The h1 stays in normal inline flow: making it a flex container turns each
+     text run into its own flex item, and the gap then spaces out the wordmark. */
+  header h1 { font-size: 14.5px; font-weight: 600; margin: 0; letter-spacing: -.02em;
+              flex: none; }
+  header h1 .mark { height: 19px; width: auto; vertical-align: -4px; margin-right: 9px; }
+  header h1 .sfx { color: var(--muted); font-weight: 400; }
+  header .spacer { flex: 1; min-width: 12px; }
+  header .stat { color: var(--muted); font-variant-numeric: tabular-nums; }
+  header .stat b { color: var(--text); font-weight: 600; }
+
+  /* Three panes: trace list, waterfall, run detail. Both outer panes collapse to
+     zero width and are dragged by the gutters between them. The inner wrappers
+     hold a fixed width so a collapsing pane clips its contents instead of
+     reflowing the text into a sliver on the way in. */
+  main {
+    /* Defaults describe the first paint, which happens before the script runs:
+       nothing is selected yet, so the detail track starts closed. Starting it at
+       420px made the pane animate shut on every page load. */
+    --sb: 280px; --sb-inner: 280px; --dt: 0px; --dt-inner: 420px;
+    --gl: 5px; --gr: 0px;
+    display: grid;
+    grid-template-columns: var(--sb) var(--gl) minmax(0, 1fr) var(--gr) var(--dt);
+    height: 100%; overflow: hidden;
+    transition: grid-template-columns .22s var(--ease);
+  }
+  main.dragging { transition: none; }
+
+  .gutter { position: relative; cursor: col-resize; touch-action: none; background: transparent; }
+  .gutter::after { content: ''; position: absolute; top: 0; bottom: 0; left: 2px;
+    width: 1px; background: var(--border); transition: background-color .15s var(--ease); }
+  .gutter:hover::after, .gutter:focus-visible::after, .gutter.dragging::after {
+    background: var(--accent); }
+  .gutter:focus-visible { outline: none; }
+  main.no-side #gutter-l, main.no-detail #gutter-r { visibility: hidden; }
+  body.resizing { cursor: col-resize; user-select: none; }
+
+  /* ---------------------------------------------------------- trace list */
+  /* Inset rounded rows, no separators: the sidebar reads as a list of objects
+     rather than a ruled table. */
+  /* Frosted chrome: the same material as the header. The trace list and the run
+     detail pad their content below the header so the rest scrolls under it. */
+  #sidebar { overflow: hidden; background: var(--glass);
+             -webkit-backdrop-filter: blur(var(--blur)) saturate(180%);
+             backdrop-filter: blur(var(--blur)) saturate(180%); }
+  #trace-list { width: var(--sb-inner); height: 100%; overflow-y: auto;
+                overflow-x: hidden; padding: calc(var(--header-h) + 6px) 0 6px; }
+  #trace-list .empty { color: var(--muted); padding: 16px; }
+  .tcard { margin: 1px 8px; padding: 8px 10px; border-radius: var(--r-sm); cursor: pointer;
+           transition: background-color .18s var(--ease); }
+  .tcard:hover { background: var(--hover-chrome); }
+  .tcard.active { background: var(--sel); }
+  .tcard.active .tname { color: var(--accent-ink); font-weight: 700; }
+  .tcard.has-error.active { background: var(--error-bg); }
+  .tcard.has-error.active .tname { color: var(--error); }
+  .tcard .t1 { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .tcard .tname { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tcard .tdur { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+  .tcard .t2 { color: var(--muted); font-size: 11.5px; margin-top: 2px;
+               display: flex; gap: 8px; align-items: center; }
+  .pill { border-radius: 5px; padding: 0 5px; font-size: 10.5px; font-weight: 600; }
+  .pill.err { background: var(--error-bg); color: var(--error); }
+  .pill.tok { color: var(--muted); font-weight: 400; }
+
+  /* ----------------------------------------------------------- waterfall */
+  #center { min-width: 0; display: flex; flex-direction: column; overflow: hidden;
+            padding-top: var(--header-h); }
+  #trace-head { padding: 12px 16px; border-bottom: 1px solid var(--border);
+                background: var(--bg); display: flex; align-items: center; gap: 14px;
+                flex-wrap: wrap; }
+  #trace-head .name { font-weight: 600; font-size: 15px; letter-spacing: -.02em; }
+  #trace-head .meta { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  #trace-head .uuid { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+  #waterfall { overflow: auto; flex: 1 1 auto; min-height: 140px; }
+  .ruler-row, .row {
+    display: grid; grid-template-columns: var(--grid); align-items: center;
+    height: var(--row-h); position: relative;
+  }
+  /* Sticky bars are translucent and blur what passes underneath: the two places
+     in this page where content actually scrolls behind chrome. */
+  .ruler-row { height: 28px; border-bottom: 1px solid var(--border);
+               position: sticky; top: 0; z-index: 2;
+               background: var(--glass-bar);
+               -webkit-backdrop-filter: blur(var(--blur)) saturate(180%);
+               backdrop-filter: blur(var(--blur)) saturate(180%); }
+  .ruler { position: relative; height: 100%; }
+  .tick { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--border); }
+  .tick span { position: absolute; left: 4px; top: 6px; color: var(--muted); font-size: 10.5px;
+               font-variant-numeric: tabular-nums; }
+  .row { cursor: pointer; border-bottom: 1px solid var(--hairline);
+         transition: background-color .18s var(--ease); }
+  .row:hover { background: var(--hover); }
+  .row.selected { background: var(--sel); }
+  .label { display: flex; align-items: center; align-self: stretch;
+           min-width: 0; padding-right: 8px; font-size: 12.5px; }
+  .label .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .label .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; margin-left: 6px; }
+
+  /* Hierarchy guides. One 14px column per depth level, matching the indent the
+     rows used to get from padding alone, so labels sit exactly where they did.
+     The 1px bleed top and bottom bridges the row separator, which is what makes
+     a parent's line read as one continuous stroke rather than a dotted one. */
+  .tree { display: flex; flex: none; align-self: stretch; padding-left: 8px;
+          margin-right: 4px; }
+  .tree i { position: relative; width: 14px; }
+  .tree i::before { content: ''; position: absolute; left: 6px; width: 1px;
+                    top: -1px; bottom: -1px; background: var(--guide); }
+  .tree i.off::before { display: none; }
+  /* An elbow turns right at the middle of the row; it only carries on down when
+     the row has a sibling below it. */
+  .tree i.e::before { bottom: auto; height: calc(50% + 1px); }
+  .tree i.e.more::before { bottom: -1px; height: auto; }
+  .tree i.e::after { content: ''; position: absolute; left: 6px; top: 50%;
+                     width: 8px; height: 1px; background: var(--guide); }
+
+  /* The disclosure control sits between the guides and the run, so it is at the
+     node's own indent. tabindex -1 kept deliberately: a hundred rows would
+     otherwise add fifty tab stops, and arrow keys already fold from the row. */
+  .caret { width: 15px; height: 15px; flex: none; padding: 0; border: 0; background: none;
+           box-shadow: none; border-radius: 4px; color: var(--muted); cursor: pointer;
+           display: inline-flex; align-items: center; justify-content: center; }
+  .caret::before { content: ''; width: 0; height: 0; border-left: 4.5px solid currentColor;
+                   border-top: 3.5px solid transparent; border-bottom: 3.5px solid transparent;
+                   transition: transform .15s var(--ease); }
+  .caret[aria-expanded="true"]::before { transform: rotate(90deg); }
+  .caret:hover { background: var(--hover-chrome); color: var(--text); }
+  .caret.leaf { visibility: hidden; }
+  .fold-count { flex: none; margin-left: 6px; padding: 0 5px; border-radius: 5px;
+                background: var(--hover-chrome); color: var(--muted);
+                font-size: 10px; font-weight: 600; }
+  .row.selected .label .nm { color: var(--accent-ink); font-weight: 600; }
+  .rtype { font-size: 10.5px; color: var(--muted); text-transform: uppercase;
+           letter-spacing: .4px; }
+  .dur { text-align: right; color: var(--muted); font-size: 11.5px; padding-right: 10px;
+         font-variant-numeric: tabular-nums; }
+  .track { position: relative; height: 100%; }
+  .bar { position: absolute; top: 6px; height: 14px; border-radius: 4px; min-width: 3px; }
+  /* Selection is carried by the row tint; the ink ring keeps the span findable
+     once the tint sits behind a pale bar. */
+  .row.selected .bar { outline: 1.5px solid var(--text); outline-offset: 1px; }
+  .bar.running { background-image: repeating-linear-gradient(45deg,
+      rgba(255,255,255,.5) 0 4px, transparent 4px 8px) !important; }
+  .bar.error { background: var(--error) !important; }
+  .bar-tokens { position: absolute; top: 6px; height: 14px; display: flex; align-items: center;
+                font-size: 10px; color: var(--muted); padding-left: 5px; pointer-events: none;
+                font-variant-numeric: tabular-nums; }
+
+  /* -------------------------------------------------------------- detail */
+  /* The third pane. Hidden until a run is picked: main.no-detail zeroes the
+     track, so the waterfall keeps the space. */
+  #detail { overflow: hidden; background: var(--glass); padding-top: var(--header-h);
+            -webkit-backdrop-filter: blur(var(--blur)) saturate(180%);
+            backdrop-filter: blur(var(--blur)) saturate(180%); }
+  /* The offset lives on the pane, not on this scroller: padding here and a sticky
+     `top` on .dhead compound, which parked the panel header 48px low and on top
+     of its own content. Padding on the pane still paints the glass behind the
+     floating header, because backgrounds fill the padding box. */
+  #detail-inner { width: var(--dt-inner); height: 100%; overflow-y: auto;
+                  overflow-x: hidden; }
+  #detail-inner .hint { color: var(--muted); padding: 20px; }
+  .dhead { padding: 13px 16px; display: flex; align-items: center; gap: 9px;
+           flex-wrap: wrap;
+           position: sticky; top: 0; z-index: 1;   /* parks under the header */
+           border-bottom: 1px solid var(--border);
+           background: var(--glass-bar);
+           -webkit-backdrop-filter: blur(var(--blur)) saturate(180%);
+           backdrop-filter: blur(var(--blur)) saturate(180%); }
+  /* In a narrow pane the identity wins the first line and the uuid gives way:
+     it is the only thing here that is also visible in the trace header and the
+     Raw run section. A zero basis stops its 36 characters from forcing a wrap of
+     their own, so it absorbs whatever slack is left and truncates. */
+  .dhead .nm { font-weight: 600; font-size: 14px; letter-spacing: -.02em;
+               flex: 0 1 auto; min-width: 8ch;
+               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dhead .badge { flex: none; }
+  .dhead .uuid { flex: 1 1 0; min-width: 0; overflow: hidden;
+                 text-overflow: ellipsis; white-space: nowrap; }
+  .badge { border-radius: 5px; padding: 2px 7px; font-size: 10.5px; font-weight: 600;
+           text-transform: uppercase; letter-spacing: .3px; }
+  .badge.ok { background: #e8e8ed; color: #48484a; }
+  .badge.err { background: var(--error-bg); color: var(--error); }
+  /* The type chip stays neutral and carries its colour in a dot, so the label
+     keeps 4.5:1 on the chip instead of relying on white-on-colour. */
+  .badge.type { background: #e8e8ed; color: #48484a; display: inline-flex;
+                align-items: center; gap: 5px; }
+  .badge.type .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .kv { display: grid; grid-template-columns: 104px 1fr; gap: 3px 12px; padding: 12px 16px;
+        border-bottom: 1px solid var(--hairline); font-size: 12px; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; font-family: var(--mono); font-size: 11.5px; word-break: break-all; }
+  section.sec { border-bottom: 1px solid var(--hairline); }
+  section.sec > h3 { margin: 0; padding: 10px 16px; font-size: 11.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .6px; color: var(--muted); cursor: pointer;
+    display: flex; align-items: center; gap: 8px; user-select: none;
+    transition: color .18s var(--ease); }
+  section.sec > h3:hover { color: var(--text); }
+  section.sec > h3:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+  section.sec > h3 .chev { font-size: 9px; }
+  section.sec > h3 .note { margin-left: auto; font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .secbody { margin: 0; padding: 0 16px 14px; }
+  .secbody.json, .secbody.error { font-family: var(--mono); font-size: 11.5px;
+    white-space: pre-wrap; word-break: break-word; line-height: 1.55; }
+  .secbody.error { color: var(--error); }
+  section.sec.collapsed .secbody { display: none; }
+
+  /* ------------------------------------------------------- markdown render */
+  .md { font-size: 12.5px; line-height: 1.62; max-width: 78ch; }
+  .md > :first-child, .mdblock > :first-child { margin-top: 0; }
+  .md > :last-child, .mdblock > :last-child { margin-bottom: 0; }
+  .md p { margin: 0 0 9px; }
+  .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+    margin: 16px 0 7px; font-weight: 600; letter-spacing: -.01em; line-height: 1.3; }
+  .md h1 { font-size: 16px; }
+  .md h2 { font-size: 14.5px; }
+  .md h3 { font-size: 13.5px; }
+  .md h4, .md h5, .md h6 { font-size: 12.5px; color: var(--muted); }
+  .md ul, .md ol { margin: 0 0 9px; padding-left: 20px; }
+  .md li { margin: 2px 0; }
+  .md li::marker { color: var(--muted); }
+  .md strong { font-weight: 600; }
+  .md em { font-style: italic; }
+  .md del { color: var(--muted); }
+  .md a { color: var(--accent-ink); }
+  .md hr { border: 0; border-top: 1px solid var(--hairline); margin: 14px 0; }
+  .md blockquote { margin: 0 0 10px; padding-left: 12px; border-left: 2px solid var(--border);
+                   color: var(--muted); }
+  .md code { font-family: var(--mono); font-size: 11px; background: #f0f0f2;
+             border-radius: 4px; padding: 1px 4px; }
+  .md pre.md-code { background: var(--panel); border: 1px solid var(--hairline);
+    border-radius: var(--r-sm); padding: 10px 12px; margin: 0 0 10px; overflow: auto; }
+  .md pre.md-code code { background: none; padding: 0; font-size: 11px; line-height: 1.55;
+    white-space: pre; }
+  /* One labelled block per string in the payload, so a message's role is visible
+     without a wall of escaped JSON in front of it. */
+  .mdlabel { font-size: 11px; font-weight: 600; color: var(--muted);
+             letter-spacing: .2px; margin: 0 0 6px; }
+  .mdblock + .mdblock { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--hairline); }
+  .mdscalar { font-family: var(--mono); font-size: 11.5px; margin: 0 0 6px; }
+  .mdscalar .mdlabel { display: inline; margin-right: 6px; }
+  .mdmeta { font-family: var(--mono); font-size: 10.5px; color: var(--muted);
+            margin: 7px 0 0; word-break: break-word; }
+
+  /* ------------------------------------------------------- detail actions */
+  .dhead-actions { margin-left: auto; flex: none; display: flex; align-items: center; gap: 10px; }
+  .seg { display: inline-flex; background: var(--hover-chrome); border-radius: 7px; padding: 2px; }
+  .seg button { border: 0; background: none; box-shadow: none; padding: 3px 10px;
+    border-radius: 5px; font-size: 11.5px; font-weight: 500; color: var(--muted);
+    transition: background-color .18s var(--ease), color .18s var(--ease); }
+  .seg button:hover { background: var(--chip-hover); color: var(--text); }
+  .seg button.on { background: var(--raise); color: var(--text); font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .10); }
+  /* Icon buttons are quiet by default and only take on a shape under the cursor,
+     so the bar reads as a wordmark and a few glyphs rather than outlined boxes. */
+  .iconbtn { width: 28px; height: 28px; padding: 0; border-radius: 50%;
+    background: transparent; color: var(--muted);
+    display: inline-flex; align-items: center; justify-content: center; }
+  .iconbtn:hover { background: var(--chip-hover); color: var(--text); }
+  .iconbtn:active { background: var(--chip-active); }
+  /* The button shows the theme you would land on, not the one you are in. */
+  #theme-toggle svg { display: block; }
+  #theme-toggle .i-sun { display: none; }
+  [data-theme="dark"] #theme-toggle .i-sun { display: block; }
+  [data-theme="dark"] #theme-toggle .i-moon { display: none; }
+  /* Token colours. Deliberately not Xcode's red strings: in a trace viewer most
+     payload is one long string, and red is already spoken for by errors, so a
+     normal input read as a failure. Values stay quiet ink and the structure
+     carries the colour. */
+  .json .k { color: #8944ab; }
+  .json .s { color: var(--text); }
+  .json .n { color: #b25000; }
+  .json .b { color: #0e7c86; }
+  .json .null { color: var(--muted); }
+
+  /* ------------------------------------------------------ dark adjustments */
+  /* Everything that is not driven by a token, kept in one block so the second
+     theme stays auditable instead of being scattered through the rules above.
+     .json .s needs nothing: it already reads --text. */
+  [data-theme="dark"] .seg button.on { background: #2f2f2f; }
+  [data-theme="dark"] .md code { background: #1a1a1a; }
+  [data-theme="dark"] .badge.ok,
+  [data-theme="dark"] .badge.type { background: #1f1f1f; color: #d4d4d4; }
+  [data-theme="dark"] .json .k { color: #c4a7ff; }
+  [data-theme="dark"] .json .n { color: #f5a623; }
+  [data-theme="dark"] .json .b { color: #2dd4bf; }
+
+  /* -------------------------------------------------------------- motion */
+  /* Product motion: short, functional, and never in front of the data. */
+  #detail-inner.reveal { animation: reveal .22s var(--ease); }
+  @keyframes reveal {
+    from { opacity: 0; transform: translateX(10px); }
+    to   { opacity: 1; transform: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+    button:active, select:active { transform: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <button type="button" id="toggle-sidebar" class="iconbtn" aria-expanded="true"
+    aria-controls="sidebar" aria-keyshortcuts="Meta+\\ Control+\\"
+    title="Toggle trace list (⌘\)"><svg width="15" height="15" viewBox="0 0 16 16"
+    aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4">
+    <rect x="1.3" y="2.6" width="13.4" height="10.8" rx="2.4"/><path d="M6.1 2.6v10.8"/></svg></button>
+  <h1><img class="mark" src="/ui/logo.svg" alt="" width="23" height="19">agentTracer <span class="sfx">· waterfall</span></h1>
+  <div class="spacer"></div>
+  <div class="tools">
+    <select id="project" title="Filter by project"><option value="">all projects</option></select>
+    <button id="refresh" title="Reload traces">refresh</button>
+  </div>
+  <div class="stat" id="totals"></div>
+  <button type="button" id="theme-toggle" class="iconbtn" aria-label="Switch to dark theme"
+    title="Switch to dark theme">
+    <svg class="i-moon" width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"
+      fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
+      <path d="M13.4 10.2A5.7 5.7 0 0 1 5.8 2.6a5.9 5.9 0 1 0 7.6 7.6z"/></svg>
+    <svg class="i-sun" width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"
+      fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+      <circle cx="8" cy="8" r="3.1"/>
+      <path d="M8 1.2v1.7M8 13.1v1.7M14.8 8h-1.7M2.9 8H1.2M12.8 3.2l-1.2 1.2M4.4 11.6l-1.2 1.2M12.8 12.8l-1.2-1.2M4.4 4.4L3.2 3.2"/></svg>
+  </button>
+</header>
+
+<main class="no-detail">
+  <aside id="sidebar" aria-label="Traces">
+    <div id="trace-list"><div class="empty">loading…</div></div>
+  </aside>
+  <div class="gutter" id="gutter-l" role="separator" aria-orientation="vertical"
+       tabindex="0" aria-controls="sidebar" aria-label="Resize trace list"></div>
+
+  <section id="center">
+    <div id="trace-head"><span class="meta">select a trace</span></div>
+    <div id="waterfall"></div>
+  </section>
+
+  <div class="gutter" id="gutter-r" role="separator" aria-orientation="vertical"
+       tabindex="0" aria-controls="detail" aria-label="Resize run detail"></div>
+  <aside id="detail" aria-label="Run detail">
+    <div id="detail-inner"><div class="hint">Select a run to inspect its inputs, outputs and metadata.</div></div>
+  </aside>
+</main>
+
+<script>
+const TYPE_COLOR = {
+  chain: 'var(--chain)', llm: 'var(--llm)', tool: 'var(--tool)',
+  retriever: 'var(--retriever)', embedding: 'var(--embedding)',
+  prompt: 'var(--prompt)', parser: 'var(--parser)',
+};
+const colorFor = t => TYPE_COLOR[t] || 'var(--unknown)';
+
+/* sb/dt are the widths the user asked for; sbEff/dtEff are what the window could
+   actually give them. Dragging reads the effective value so a clamped pane does
+   not jump the moment you touch its gutter. */
+const state = {
+  traces: [], detail: null, selected: null, collapsed: {}, view: 'md',
+  sb: 280, dt: 420, sbEff: 280, dtEff: 420, sideHidden: false,
+  tree: new Map(), collapsedRuns: new Set(),
+};
+
+const $  = sel => document.querySelector(sel);
+const esc = s => String(s).replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function fmtDur(s) {
+  if (s === null || s === undefined) return '—';
+  if (s < 0.001) return (s * 1e6).toFixed(0) + 'µs';
+  if (s < 1)     return (s * 1000).toFixed(1) + 'ms';
+  if (s < 60)    return s.toFixed(2) + 's';
+  return Math.floor(s / 60) + 'm' + (s % 60).toFixed(0) + 's';
+}
+const fmtInt = n => (n || 0).toLocaleString();
+function fmtClock(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleTimeString(undefined, { hour12: false }) + '.' +
+         String(new Date(iso).getMilliseconds()).padStart(3, '0');
+}
+
+/* Tokenize the RAW text, then escape each atom as it is emitted.
+   Escaping first and highlighting second is a trap: the number pattern then
+   matches the digits inside entities like &#39;, splitting the entity and
+   rendering it literally. */
+const JSON_TOKEN = /("(?:\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"\s*:?)|\b(true|false|null)\b|(-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g;
+const HIGHLIGHT_MAX = 400_000;
+
+function jsonHtml(value) {
+  if (value === undefined) return '<span class="null">undefined</span>';
+  if (value === null) return '<span class="null">null</span>';
+  // Plain strings are not JSON -- escaping alone is both correct and cheaper.
+  if (typeof value === 'string') return esc(value);
+
+  let text;
+  try { text = JSON.stringify(value, null, 2); } catch (e) { text = String(value); }
+  if (text === undefined) return '<span class="null">—</span>';
+  if (text.length > HIGHLIGHT_MAX) return esc(text);
+
+  let out = '', last = 0;
+  for (const m of text.matchAll(JSON_TOKEN)) {
+    out += esc(text.slice(last, m.index));
+    let cls = 'n';
+    if (m[1] !== undefined) cls = /:\s*$/.test(m[0]) ? 'k' : 's';
+    else if (m[2] !== undefined) cls = m[2] === 'null' ? 'null' : 'b';
+    out += `<span class="${cls}">${esc(m[0])}</span>`;
+    last = m.index + m[0].length;
+  }
+  return out + esc(text.slice(last));
+}
+
+/* ---------------------------------------------------------------- markdown */
+/* A deliberately small CommonMark subset -- the page carries no dependencies,
+   so there is no marked/remark to lean on. It tokenizes the raw text and escapes
+   each atom as it emits, for the same reason jsonHtml does: escaping first lets a
+   pattern match the inside of an entity like &#39; and split it apart.
+   Everything that reaches the DOM goes through esc(); nothing else does. */
+const MD_MAX = 200_000;
+
+const MD_INLINE = new RegExp(
+  '(`[^`\\n]+`)' +                                  // code span
+  '|(\\*\\*[^*\\n]+\\*\\*|__[^_\\n]+__)' +          // bold
+  '|(\\*[^*\\n]+\\*|_[^_\\n]+_)' +                  // italic
+  '|(~~[^~\\n]+~~)' +                               // strike
+  '|(\\[[^\\]\\n]*\\]\\([^)\\s]+\\))',              // link
+  'g');
+
+const MD_HEAD  = /^(#{1,6})\s+(.*?)\s*#*\s*$/;
+const MD_FENCE = /^\s*```+\s*(\S*)\s*$/;
+const MD_RULE  = /^\s*([-*_])(\s*\1){2,}\s*$/;
+const MD_QUOTE = /^\s*>\s?/;
+const MD_UL    = /^\s*[-*+]\s+/;
+const MD_OL    = /^\s*\d+[.)]\s+/;
+
+/* Only http(s), mailto, fragment and relative targets survive: a payload is
+   untrusted input, and javascript: in an href is still a scripting vector. */
+function safeUrl(u) {
+  const s = String(u).trim();
+  return /^(https?:|mailto:|#|\/|\.)/i.test(s) ? s : '#';
+}
+
+function mdInline(text) {
+  let out = '', last = 0;
+  for (const m of text.matchAll(MD_INLINE)) {
+    out += esc(text.slice(last, m.index));
+    const tok = m[0];
+    if (m[1] !== undefined) out += `<code>${esc(tok.slice(1, -1))}</code>`;
+    else if (m[2] !== undefined) out += `<strong>${esc(tok.slice(2, -2))}</strong>`;
+    else if (m[3] !== undefined) out += `<em>${esc(tok.slice(1, -1))}</em>`;
+    else if (m[4] !== undefined) out += `<del>${esc(tok.slice(2, -2))}</del>`;
+    else {
+      const cut = tok.indexOf('](');
+      out += `<a href="${esc(safeUrl(tok.slice(cut + 2, -1)))}" target="_blank"` +
+             ` rel="noreferrer noopener">${esc(tok.slice(1, cut))}</a>`;
+    }
+    last = m.index + tok.length;
+  }
+  return out + esc(text.slice(last));
+}
+
+function mdToHtml(src) {
+  const text = String(src).replace(/\r\n?/g, '\n');
+  if (text.length > MD_MAX) return `<p>${esc(text)}</p>`;
+
+  const lines = text.split('\n');
+  const out = [];
+  let para = [];
+  let i = 0;
+
+  // Single newlines become <br>: prompt text is authored with them, and joining
+  // the lines into one flowing paragraph would destroy the structure the author
+  // put there.
+  const flush = () => {
+    if (para.length) out.push(`<p>${para.map(mdInline).join('<br>')}</p>`);
+    para = [];
+  };
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    const fence = line.match(MD_FENCE);
+    if (fence) {
+      flush();
+      const body = [];
+      i++;
+      while (i < lines.length && !/^\s*```/.test(lines[i])) body.push(lines[i++]);
+      i++;
+      const attr = fence[1] ? ` data-lang="${esc(fence[1])}"` : '';
+      out.push(`<pre class="md-code"${attr}><code>${esc(body.join('\n'))}</code></pre>`);
+      continue;
+    }
+    const head = line.match(MD_HEAD);
+    if (head) {
+      flush();
+      const lvl = head[1].length;
+      out.push(`<h${lvl}>${mdInline(head[2])}</h${lvl}>`);
+      i++; continue;
+    }
+    if (MD_RULE.test(line)) { flush(); out.push('<hr>'); i++; continue; }
+    if (MD_QUOTE.test(line)) {
+      flush();
+      const body = [];
+      while (i < lines.length && MD_QUOTE.test(lines[i])) {
+        body.push(lines[i++].replace(MD_QUOTE, ''));
+      }
+      out.push(`<blockquote>${mdToHtml(body.join('\n'))}</blockquote>`);
+      continue;
+    }
+    if (MD_UL.test(line) || MD_OL.test(line)) {
+      flush();
+      const ordered = MD_OL.test(line);
+      const marker = ordered ? MD_OL : MD_UL;
+      const items = [];
+      while (i < lines.length && (MD_UL.test(lines[i]) || MD_OL.test(lines[i]))) {
+        let item = lines[i].replace(marker, '');
+        i++;
+        // An indented line that is not a new bullet continues this one.
+        while (i < lines.length && /^\s+\S/.test(lines[i]) && !MD_UL.test(lines[i]) &&
+               !MD_OL.test(lines[i]) && !MD_FENCE.test(lines[i])) {
+          item += '\n' + lines[i++].trim();
+        }
+        items.push(`<li>${mdInline(item).replace(/\n/g, '<br>')}</li>`);
+      }
+      out.push(ordered ? `<ol>${items.join('')}</ol>` : `<ul>${items.join('')}</ul>`);
+      continue;
+    }
+    if (!line.trim()) { flush(); i++; continue; }
+    para.push(line);
+    i++;
+  }
+  flush();
+  return out.join('');
+}
+
+/* Walk the payload so its strings arrive as prose rather than as escaped JSON.
+   A message object becomes a labelled turn instead of a handful of keys. The
+   OpenAI shape calls the speaker `role`; LangChain's serialized messages call it
+   `type`, and this server stores what the SDK actually sent. */
+function mdBlocks(value) {
+  const parts = [];
+  const join = (path, key) => (path ? `${path}.${key}` : key);
+
+  const walk = (v, path) => {
+    if (typeof v === 'string') {
+      parts.push(`<div class="mdblock"><div class="mdlabel">${esc(path)}</div>` +
+                 `<div class="md">${mdToHtml(v)}</div></div>`);
+    } else if (Array.isArray(v)) {
+      v.forEach((item, i) => walk(item, `${path}[${i}]`));
+    } else if (v && typeof v === 'object') {
+      const speaker = typeof v.role === 'string' ? v.role
+                    : (typeof v.type === 'string' ? v.type : null);
+      const isTurn = speaker !== null && 'content' in v && v.content !== undefined;
+      if (isTurn) {
+        const body = typeof v.content === 'string'
+          ? mdToHtml(v.content)
+          : (Array.isArray(v.content) ? v.content : [v.content])
+              .map(p => `<pre class="md-code"><code>${
+                esc(typeof p === 'string' ? p : JSON.stringify(p, null, 2))}</code></pre>`)
+              .join('');
+        parts.push(`<div class="mdblock"><div class="mdlabel">${esc(speaker)}</div>` +
+                   `<div class="md">${body}</div></div>`);
+        // A message's other keys (id, name, tool_calls) are metadata. Reading them
+        // as their own labelled blocks buries the prose, so they collapse to one
+        // line and the turn stays a turn.
+        const meta = Object.entries(v)
+          .filter(([k, val]) => k !== 'role' && k !== 'type' && k !== 'content' &&
+                                val !== null && val !== undefined && val !== '' &&
+                                !(Array.isArray(val) && !val.length))
+          .map(([k, val]) => `${k}=${typeof val === 'object' ? JSON.stringify(val) : String(val)}`);
+        if (meta.length) parts.push(`<div class="mdmeta">${esc(meta.join('  '))}</div>`);
+        return;
+      }
+      for (const [k, val] of Object.entries(v)) walk(val, join(path, k));
+    } else {
+      parts.push(`<div class="mdscalar"><span class="mdlabel">${esc(path)}</span>` +
+                 `<code>${esc(String(v))}</code></div>`);
+    }
+  };
+  walk(value, '');
+  return parts.join('');
+}
+
+/* ------------------------------------------------------------------ theme */
+/* The head script has already set data-theme, so this only has to label the
+   button and keep it in step. Light is the default; we do not follow the OS. */
+const currentTheme = () =>
+  document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+
+function applyTheme(theme, persist) {
+  document.documentElement.dataset.theme = theme;
+  const btn = $('#theme-toggle');
+  const next = theme === 'dark' ? 'light' : 'dark';
+  btn.title = `Switch to ${next} theme`;
+  btn.setAttribute('aria-label', btn.title);
+  if (persist) {
+    try { localStorage.setItem('agentTracer.theme', theme); } catch (e) { /* not fatal */ }
+  }
+}
+
+/* ----------------------------------------------------------------- layout */
+/* A pane width is a request, not a fact. The waterfall always keeps PANE.center;
+   when the window cannot fit everything the run detail gives ground first, then
+   the trace list, which is the one pane we can drop entirely. */
+const PANE = { sb: [190, 460], dt: [300, 760], center: 320, gutter: 5 };
+const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+
+function loadPrefs() {
+  try {
+    const p = JSON.parse(localStorage.getItem('agentTracer.layout') || '{}');
+    if (p.sb) state.sb = p.sb;
+    if (p.dt) state.dt = p.dt;
+    state.sideHidden = p.side === false;
+  } catch (e) { /* private mode, or nothing stored yet: defaults are fine */ }
+}
+
+function savePrefs() {
+  try {
+    localStorage.setItem('agentTracer.layout', JSON.stringify(
+      { sb: state.sb, dt: state.dt, side: !state.sideHidden }));
+  } catch (e) { /* the layout still works, it just will not stick */ }
+}
+
+function applyWidths() {
+  const main = $('main');
+  const gut = PANE.gutter;
+  const dtShown = !main.classList.contains('no-detail');
+  let sbShown = !state.sideHidden;
+
+  let sb = sbShown ? clamp(state.sb, PANE.sb[0], PANE.sb[1]) : 0;
+  let dt = dtShown ? clamp(state.dt, PANE.dt[0], PANE.dt[1]) : 0;
+
+  let over = sb + dt + (sbShown ? gut : 0) + (dtShown ? gut : 0)
+             + PANE.center - window.innerWidth;
+  if (over > 0 && dtShown) { const t = Math.min(over, dt - PANE.dt[0]); dt -= t; over -= t; }
+  if (over > 0 && sbShown) { const t = Math.min(over, sb - PANE.sb[0]); sb -= t; over -= t; }
+  if (over > 0 && sbShown) { sbShown = false; sb = 0; }
+
+  state.sbEff = sb;
+  state.dtEff = dt;
+  main.classList.toggle('no-side', !sbShown);
+  main.style.setProperty('--sb', sb + 'px');
+  main.style.setProperty('--gl', sbShown ? gut + 'px' : '0px');
+  main.style.setProperty('--dt', dt + 'px');
+  main.style.setProperty('--gr', dtShown ? gut + 'px' : '0px');
+  // Inner wrappers keep a width even when the track is zero, so a collapsing
+  // pane clips instead of reflowing its text into a sliver.
+  main.style.setProperty('--sb-inner', (sbShown && sb > 0 ? sb : state.sb) + 'px');
+  main.style.setProperty('--dt-inner', (dtShown && dt > 0 ? dt : state.dt) + 'px');
+
+  $('#toggle-sidebar').setAttribute('aria-expanded', String(sbShown));
+  for (const [id, val, range] of [['gutter-l', sb, PANE.sb], ['gutter-r', dt, PANE.dt]]) {
+    const g = $('#' + id);
+    g.setAttribute('aria-valuenow', String(Math.round(val)));
+    g.setAttribute('aria-valuemin', String(range[0]));
+    g.setAttribute('aria-valuemax', String(range[1]));
+  }
+}
+
+function toggleSidebar() {
+  state.sideHidden = !state.sideHidden;
+  applyWidths();
+  savePrefs();
+}
+
+function setupGutter(gutter, { get, set, invert, shown = () => true }) {
+  let startX = 0, startVal = 0, active = false;
+
+  gutter.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || !shown()) return;
+    active = true;
+    startX = e.clientX;
+    startVal = get();
+    // Capture keeps the drag alive outside the 5px gutter, but it throws on a
+    // pointer id the browser no longer considers active. It is an optimisation,
+    // not the mechanism, so a failure must not abandon the drag mid-handler.
+    try { gutter.setPointerCapture(e.pointerId); } catch (err) { /* keep dragging */ }
+    gutter.classList.add('dragging');
+    $('main').classList.add('dragging');
+    document.body.classList.add('resizing');
+    e.preventDefault();
+  });
+  gutter.addEventListener('pointermove', e => {
+    if (active) set(startVal + (e.clientX - startX) * (invert ? -1 : 1));
+  });
+  const end = e => {
+    if (!active) return;
+    active = false;
+    gutter.classList.remove('dragging');
+    $('main').classList.remove('dragging');
+    document.body.classList.remove('resizing');
+    if (gutter.hasPointerCapture?.(e.pointerId)) {
+      try { gutter.releasePointerCapture(e.pointerId); } catch (err) { /* already gone */ }
+    }
+    savePrefs();
+  };
+  gutter.addEventListener('pointerup', end);
+  gutter.addEventListener('pointercancel', end);
+
+  // Arrow keys nudge a step; shift makes it a leap. A splitter has to be usable
+  // without a pointer.
+  gutter.addEventListener('keydown', e => {
+    const dir = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0;
+    if (!dir || !shown()) return;
+    e.preventDefault();
+    set(get() + dir * (invert ? -1 : 1) * (e.shiftKey ? 48 : 12));
+    savePrefs();
+  });
+}
+
+/* ------------------------------------------------------------------ loading */
+
+async function loadProjects() {
+  const res = await fetch('/ui/projects');
+  const names = await res.json();
+  const sel = $('#project');
+  sel.innerHTML = '<option value="">all projects</option>' +
+    names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+}
+
+async function loadTraces() {
+  const project = $('#project').value;
+  const qs = project ? `?session=${encodeURIComponent(project)}` : '';
+  const res = await fetch('/ui/traces' + qs);
+  state.traces = await res.json();
+  renderSidebar();
+  const runCount = state.traces.reduce((a, t) => a + t.run_count, 0);
+  const errCount = state.traces.reduce((a, t) => a + t.error_count, 0);
+  $('#totals').innerHTML =
+    `<b>${state.traces.length}</b> traces · <b>${runCount}</b> runs · ` +
+    `<b>${errCount}</b> errors`;
+
+  if (!state.traces.length) {
+    $('#waterfall').innerHTML = '';
+    $('#trace-head').innerHTML = '<span class="meta">no traces yet — run an example first</span>';
+    return;
+  }
+  const wanted = location.hash.slice(1);
+  const pick = state.traces.find(t => t.trace_id === wanted) || state.traces[0];
+  selectTrace(pick.trace_id);
+}
+
+function renderSidebar() {
+  const el = $('#trace-list');
+  if (!state.traces.length) { el.innerHTML = '<div class="empty">no traces</div>'; return; }
+  el.innerHTML = state.traces.map(t => {
+    const active = t.trace_id === state.selected;
+    const err = t.error_count
+      ? `<span class="pill err">${t.error_count} err</span>` : '';
+    return `<div class="tcard ${t.error_count ? 'has-error' : ''} ${active ? 'active' : ''}"
+                 data-id="${esc(t.trace_id)}" role="button" tabindex="0"
+                 aria-current="${active}">
+      <div class="t1"><span class="tname">${esc(t.name)}</span>
+        <span class="tdur">${fmtDur(t.duration)}</span></div>
+      <div class="t2">${esc((t.start || '').slice(11, 19))} · ${t.run_count} runs ${err}
+        <span class="pill tok">${fmtInt(t.tokens.total)} tok</span></div>
+    </div>`;
+  }).join('');
+}
+
+/* ---------------------------------------------------------------- waterfall */
+
+async function selectTrace(id) {
+  state.selected = id;
+  state.selected_run = null;
+  location.hash = id;
+  renderSidebar();
+
+  const res = await fetch(`/ui/traces/${encodeURIComponent(id)}`);
+  if (!res.ok) { $('#trace-head').textContent = 'trace not found'; return; }
+  state.detail = await res.json();
+  state.rows = Object.fromEntries(state.detail.rows.map(r => [r.id, r]));
+  state.tree = indexTree(state.detail.rows);
+  renderTraceHead();
+  renderWaterfall();
+  renderDetail(null);
+}
+
+function renderTraceHead() {
+  const s = state.detail.summary;
+  const err = s.error_count ? `<span class="pill err">${s.error_count} error</span>` : '';
+  $('#trace-head').innerHTML = `
+    <span class="name">${esc(s.name)}</span>
+    <span class="meta">${fmtDur(s.duration)} · ${s.run_count} runs ·
+      ${fmtInt(s.tokens.total)} tokens (${fmtInt(s.tokens.input)} in / ${fmtInt(s.tokens.output)} out)</span>
+    ${err}
+    <span class="uuid">${esc(s.trace_id)}</span>`;
+}
+
+/* Which rows need a hierarchy line, and where.
+
+   query_runs returns rows in depth-first order, and that is what makes this
+   cheap: a row's next sibling is simply the next row at the same depth, because
+   a subtree is always listed contiguously. So one forward pass recording the
+   last row seen at each depth gives every row its later-sibling flag, and a
+   second pass that walks the ancestor chain gives each row the continuation
+   bits for the levels above it. */
+function treeGuides(rows) {
+  const nextAtDepth = new Array(rows.length).fill(-1);
+  const lastAtDepth = [];
+  for (let i = 0; i < rows.length; i++) {
+    const d = rows[i].depth;
+    if (lastAtDepth[d] !== undefined) nextAtDepth[lastAtDepth[d]] = i;
+    lastAtDepth.length = d + 1;
+    lastAtDepth[d] = i;
+  }
+
+  const ancestry = [];
+  return rows.map((row, i) => {
+    const d = row.depth;
+    ancestry.length = d;
+    const cols = [];
+    // Columns above the parent's level: a line only while that ancestor still
+    // has something below it.
+    for (let k = 0; k < d - 1; k++) {
+      const anc = ancestry[k + 1];
+      cols.push(anc !== undefined && nextAtDepth[anc] !== -1 ? 'g' : 'g off');
+    }
+    // The row's own column is the elbow.
+    if (d > 0) cols.push(nextAtDepth[i] !== -1 ? 'e more' : 'e');
+    ancestry[d] = i;
+    return cols.map(c => `<i class="${c}"></i>`).join('');
+  });
+}
+
+/* Subtree extents, for folding. A depth-first list keeps a row's whole subtree in
+   one contiguous run, so a single stack pass gives every row the index just past
+   its last descendant: everything folding needs, plus the descendant count. */
+function indexTree(rows) {
+  const end = new Array(rows.length);
+  const stack = [];
+  for (let i = 0; i < rows.length; i++) {
+    while (stack.length && rows[i].depth <= rows[stack[stack.length - 1]].depth) {
+      end[stack.pop()] = i;
+    }
+    stack.push(i);
+  }
+  while (stack.length) end[stack.pop()] = rows.length;
+
+  const tree = new Map();
+  rows.forEach((r, i) => tree.set(r.id, { end: end[i], kids: end[i] - i - 1 }));
+  return tree;
+}
+
+/* Dropping a folded row's subtree from a depth-first list leaves a depth-first
+   list, so the guides can simply be recomputed on what is left. */
+function visibleRows() {
+  const rows = state.detail.rows;
+  const out = [];
+  for (let i = 0; i < rows.length;) {
+    const row = rows[i];
+    out.push(row);
+    i = state.collapsedRuns.has(row.id) ? state.tree.get(row.id).end : i + 1;
+  }
+  return out;
+}
+
+function isFolded(id) {
+  return state.collapsedRuns.has(id);
+}
+
+function toggleFold(id) {
+  if (isFolded(id)) state.collapsedRuns.delete(id);
+  else state.collapsedRuns.add(id);
+  renderWaterfall();
+}
+
+function renderWaterfall() {
+  const wf = $('#waterfall');
+  const rows = visibleRows();
+  const { span } = state.detail;
+  const pct = v => (v / span) * 100;
+  const guides = treeGuides(rows);
+  // innerHTML replacement drops the scroll position, which would yank the list
+  // back to the top every time a row is clicked or a node folded.
+  const keepTop = wf.scrollTop;
+
+  // Ruler: aim for a tick roughly every 1/6 of the span, snapped to a sane step.
+  const steps = [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60];
+  const step = steps.find(s => span / s <= 6) || 60;
+  let ticks = '';
+  for (let t = 0; t <= span + 1e-9; t += step) {
+    ticks += `<div class="tick" style="left:${pct(t)}%"><span>${fmtDur(t)}</span></div>`;
+  }
+
+  const body = rows.map((r, i) => {
+    const w = r.latency === null ? 0 : Math.max(pct(r.latency), 0.25);
+    const cls = ['bar'];
+    if (r.status === 'error') cls.push('error');
+    if (r.status === 'running') cls.push('running');
+    const tok = r.tokens
+      ? `<div class="bar-tokens" style="left:calc(${pct(r.offset)}% + ${w}% + 4px)">${fmtInt(r.tokens.total)} tok</div>`
+      : '';
+    const kids = state.tree.get(r.id).kids;
+    const folded = isFolded(r.id);
+    // Rows without children keep the same slot, empty, so names stay in column.
+    const caret = kids
+      ? `<button type="button" class="caret" tabindex="-1" data-fold="${esc(r.id)}"
+           aria-expanded="${!folded}" aria-label="${folded ? 'Expand' : 'Collapse'} ${
+           esc(r.name)}, ${kids} run${kids === 1 ? '' : 's'}"></button>`
+      : '<span class="caret leaf"></span>';
+    const count = folded ? `<span class="fold-count">${kids}</span>` : '';
+    return `<div class="row ${r.id === state.selected_run ? 'selected' : ''}" data-id="${esc(r.id)}">
+      <div class="label" title="${esc(r.name)}">
+        <span class="tree">${guides[i]}</span>${caret}
+        <span class="dot" style="background:${colorFor(r.run_type)}"></span>
+        <span class="nm">${esc(r.name)}</span>${count}
+      </div>
+      <div class="rtype">${esc(r.run_type)}</div>
+      <div class="dur">${fmtDur(r.latency)}</div>
+      <div class="track">
+        <div class="${cls.join(' ')}" style="left:${pct(r.offset)}%;width:${w}%;
+             background:${colorFor(r.run_type)}"></div>${tok}
+      </div>
+    </div>`;
+  }).join('');
+
+  wf.innerHTML =
+    `<div class="ruler-row"><div></div><div></div><div></div>
+       <div class="ruler">${ticks}</div></div>${body}`;
+  wf.scrollTop = keepTop;
+}
+
+$('#waterfall').addEventListener('click', e => {
+  const caret = e.target.closest('[data-fold]');
+  if (caret) { toggleFold(caret.dataset.fold); return; }
+  const row = e.target.closest('.row');
+  if (!row) return;
+  state.selected_run = row.dataset.id;
+  renderWaterfall();
+  renderDetail(state.rows[row.dataset.id]);
+});
+
+/* ------------------------------------------------------------------- detail */
+
+function section(title, value, opts = {}) {
+  const key = opts.key || title;
+  const collapsed = state.collapsed[key] ? 'collapsed' : '';
+  const empty = value === null || value === undefined ||
+                (typeof value === 'object' && !Object.keys(value).length) ||
+                (Array.isArray(value) && !value.length);
+  if (empty && !opts.keepEmpty) return '';
+  const note = opts.note ? `<span class="note">${esc(opts.note)}</span>` : '';
+  // Payload sections can be read as prose; the raw sections stay JSON.
+  const body = opts.md && state.view === 'md'
+    ? `<div class="secbody md">${mdBlocks(value)}</div>`
+    : `<div class="secbody ${opts.error ? 'error' : 'json'}">${jsonHtml(value)}</div>`;
+  return `<section class="sec ${collapsed}" data-key="${esc(key)}">
+    <h3 tabindex="0"><span class="chev">${collapsed ? '▶' : '▼'}</span>${esc(title)}${note}</h3>
+    ${body}
+  </section>`;
+}
+
+function renderDetail(run, opts = {}) {
+  const el = $('#detail-inner');
+  const main = $('main');
+  const wasHidden = main.classList.contains('no-detail');
+  main.classList.toggle('no-detail', !run);
+
+  if (!run) {
+    el.innerHTML = '<div class="hint">Select a run to inspect its inputs, outputs and metadata.</div>';
+    applyWidths();
+    return;
+  }
+  // Toggling the view should not throw the reader back to the top of a long
+  // payload; picking a different run should.
+  const keepScroll = opts.keepScroll ? el.scrollTop : 0;
+
+  el.innerHTML = `
+    <div class="dhead">
+      <span class="nm">${esc(run.name)}</span>
+      <span class="badge ${run.status === 'error' ? 'err' : 'ok'}">${esc(run.status)}</span>
+      <span class="badge type"><span class="dot"
+        style="background:${colorFor(run.run_type)}"></span>${esc(run.run_type)}</span>
+      <span class="meta uuid" style="color:var(--muted);font-family:var(--mono);font-size:11px">
+        ${esc(run.id)}</span>
+      <div class="dhead-actions">
+        <div class="seg" role="group" aria-label="Payload view">
+          <button type="button" data-view="md" class="${state.view === 'md' ? 'on' : ''}"
+            aria-pressed="${state.view === 'md'}">markdown</button>
+          <button type="button" data-view="json" class="${state.view === 'json' ? 'on' : ''}"
+            aria-pressed="${state.view === 'json'}">json</button>
+        </div>
+        <button type="button" class="iconbtn" data-close title="Close (Esc)"
+          aria-label="Close run detail"><svg width="11" height="11" viewBox="0 0 11 11"
+          aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linecap="round"><path d="M1.5 1.5l8 8M9.5 1.5l-8 8"/></svg></button>
+      </div>
+    </div>
+    <dl class="kv">
+      <dt>started</dt><dd>${fmtClock(run.start_time)}</dd>
+      <dt>duration</dt><dd>${fmtDur(run.latency)}</dd>
+      <dt>self time</dt><dd>${fmtDur(run.self_time)}${
+        run.latency !== null && run.self_time !== null && run.self_time < run.latency * 0.5
+          ? ' <span style="color:var(--muted)">(mostly waiting on children)</span>' : ''}</dd>
+      <dt>offset</dt><dd>+${fmtDur(run.offset)} into trace</dd>
+      ${run.model ? `<dt>model</dt><dd>${esc(run.model)}</dd>` : ''}
+      ${run.node ? `<dt>graph node</dt><dd>${esc(run.node)}</dd>` : ''}
+      ${run.tokens ? `<dt>tokens</dt><dd>${fmtInt(run.tokens.input)} in · ${
+        fmtInt(run.tokens.output)} out · ${fmtInt(run.tokens.total)} total</dd>` : ''}
+      ${run.tags && run.tags.length ? `<dt>tags</dt><dd>${esc(run.tags.join(', '))}</dd>` : ''}
+      ${Object.keys(run.attachments || {}).length
+        ? `<dt>attachments</dt><dd>${Object.keys(run.attachments).map(esc).join(', ')}</dd>` : ''}
+    </dl>
+    ${section('Error', run.error, { error: true })}
+    ${section('Inputs', run.inputs, { md: true })}
+    ${section('Outputs', run.outputs, { md: true })}
+    ${section('Metadata', run.extra)}
+    ${section('Serialized', run.serialized, { key: 'serialized' })}
+    ${section('Raw run', run, { key: 'raw' })}`;
+
+  el.scrollTop = keepScroll;
+
+  // Only on the hidden -> open transition: re-running it on every arrow key would
+  // flicker through a list the operator is trying to read.
+  if (wasHidden) {
+    el.classList.remove('reveal');
+    void el.offsetWidth;
+    el.classList.add('reveal');
+  }
+  applyWidths();
+
+  const toggle = h => {
+    const sec = h.parentElement;
+    state.collapsed[sec.dataset.key] = sec.classList.toggle('collapsed');
+    h.querySelector('.chev').textContent = sec.classList.contains('collapsed') ? '▶' : '▼';
+  };
+  el.querySelectorAll('section.sec > h3').forEach(h => {
+    h.addEventListener('click', () => toggle(h));
+    h.addEventListener('keydown', e => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      toggle(h);
+    });
+  });
+}
+
+function closeDetail() {
+  state.selected_run = null;
+  if (state.detail) renderWaterfall();
+  renderDetail(null);
+}
+
+// Delegated, so the panel can be rebuilt without re-binding: both controls live
+// inside markup that renderDetail replaces wholesale.
+$('#detail').addEventListener('click', e => {
+  const seg = e.target.closest('.seg button');
+  if (seg) {
+    state.view = seg.dataset.view;
+    if (state.selected_run) renderDetail(state.rows[state.selected_run], { keepScroll: true });
+    return;
+  }
+  if (e.target.closest('[data-close]')) closeDetail();
+});
+
+/* ---------------------------------------------------------------- selection */
+
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === '\\') { e.preventDefault(); toggleSidebar(); return; }
+  if (/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName)) return;
+  if (e.key === 'Escape') {
+    if (state.selected_run) closeDetail();
+    return;
+  }
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    // Fold from the selected row: the tree equivalent of the same keys.
+    const kids = state.tree.get(state.selected_run)?.kids;
+    if (!kids) return;
+    const folded = isFolded(state.selected_run);
+    if ((e.key === 'ArrowLeft') === folded) return;   // already in that state
+    e.preventDefault();
+    toggleFold(state.selected_run);
+    return;
+  }
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  if (!state.detail) return;
+  // Step through what is on screen, or a folded subtree would swallow the
+  // selection into rows nobody can see.
+  const rows = visibleRows();
+  const i = rows.findIndex(r => r.id === state.selected_run);
+  const next = e.key === 'ArrowDown'
+    ? Math.min(i + 1, rows.length - 1)
+    : Math.max(i < 0 ? 0 : i - 1, 0);
+  e.preventDefault();
+  state.selected_run = rows[next].id;
+  renderWaterfall();
+  renderDetail(rows[next]);
+  document.querySelector('.row.selected')?.scrollIntoView({ block: 'nearest' });
+});
+
+$('#trace-list').addEventListener('click', e => {
+  const card = e.target.closest('.tcard');
+  if (card) selectTrace(card.dataset.id);
+});
+$('#trace-list').addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const card = e.target.closest('.tcard');
+  if (!card) return;
+  e.preventDefault();
+  selectTrace(card.dataset.id);
+});
+$('#project').addEventListener('change', loadTraces);
+$('#refresh').addEventListener('click', async () => { await loadProjects(); await loadTraces(); });
+$('#toggle-sidebar').addEventListener('click', toggleSidebar);
+$('#theme-toggle').addEventListener('click', () =>
+  applyTheme(currentTheme() === 'dark' ? 'light' : 'dark', true));
+
+setupGutter($('#gutter-l'), {
+  get: () => state.sbEff,
+  invert: false,
+  shown: () => !$('main').classList.contains('no-side'),
+  set: v => { state.sb = clamp(v, PANE.sb[0], PANE.sb[1]); state.sideHidden = false; applyWidths(); },
+});
+setupGutter($('#gutter-r'), {
+  get: () => state.dtEff,
+  invert: true,
+  shown: () => !$('main').classList.contains('no-detail'),
+  set: v => { state.dt = clamp(v, PANE.dt[0], PANE.dt[1]); applyWidths(); },
+});
+
+let rafPending = false;
+window.addEventListener('resize', () => {
+  if (rafPending) return;
+  rafPending = true;
+  requestAnimationFrame(() => { rafPending = false; applyWidths(); });
+});
+
+loadPrefs();
+applyTheme(currentTheme(), false);
+applyWidths();
+(async () => { await loadProjects(); await loadTraces(); })();
+</script>
+</body>
+</html>

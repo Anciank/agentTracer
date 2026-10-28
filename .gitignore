@@ -9,3 +9,21 @@ data/
 *.db-shm
 .pytest_cache/
 uv.lock
+
+# Go
+server/bin/
+server/agenttracer
+*.exe
+web/node_modules/
+web/dist/
+.env
+.env.local
+data/
+
+secrets/api_key
+secrets/*.key
+secrets/
+!secrets.example
+
+.venv-compat/
+.venv*/
