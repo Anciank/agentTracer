@@ -507,7 +507,18 @@ a { color: var(--accent-ink); }
   border-radius: 8px; padding: 8px 10px; cursor: pointer;
 }
 .path-row:hover { background: var(--hover); }
-.path-label { font-size: 12px; font-weight: 600; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.path-row-err {
+  border-color: color-mix(in srgb, var(--error) 45%, var(--border));
+  box-shadow: inset 3px 0 0 var(--error);
+}
+.path-label { font-size: 12px; font-weight: 600; display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.path-step-wrap { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; }
+.path-arrow { color: var(--muted); font-size: 11px; font-weight: 500; }
+.path-step {
+  display: inline-block; max-width: 11em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--mono); font-size: 11px; font-weight: 550;
+  padding: 1px 6px; border-radius: 4px; background: var(--chip); color: var(--text);
+}
 .path-meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
 .track { overflow: hidden; }
 

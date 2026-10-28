@@ -1,0 +1,31 @@
+{
+  "paths": [
+    {
+      "count": 1,
+      "error_rate": 0,
+      "fingerprint": "plan\u00d72>worker\u00d76>join\u00d72",
+      "label": "plan \u00d72 \u2192 worker \u00d76 \u2192 join \u00d72",
+      "share": 1,
+      "steps": [
+        {
+          "key": "plan",
+          "repeat": 2
+        },
+        {
+          "key": "worker",
+          "repeat": 6
+        },
+        {
+          "key": "join",
+          "repeat": 2
+        }
+      ]
+    }
+  ],
+  "project": "lgtest-parallel_fanout-L090953-r0",
+  "window": {
+    "from": "2026-10-27T09:20:57.944563674Z",
+    "preset": "24h",
+    "to": "2026-10-28T09:20:57.944563674Z"
+  }
+}

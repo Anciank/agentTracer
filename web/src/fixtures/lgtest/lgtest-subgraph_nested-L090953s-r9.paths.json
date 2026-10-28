@@ -1,0 +1,43 @@
+{
+  "paths": [
+    {
+      "count": 1,
+      "error_rate": 0,
+      "fingerprint": "preamble\u00d72>inner_agent\u00d73>call_inner\u00d72>tools\u00d72>inner_agent\u00d73>finalize\u00d72",
+      "label": "preamble \u00d72 \u2192 inner_agent \u00d73 \u2192 call_inner \u00d72 \u2192 tools \u00d72 \u2192 inner_agent \u00d73 \u2192 finalize \u00d72",
+      "share": 1,
+      "steps": [
+        {
+          "key": "preamble",
+          "repeat": 2
+        },
+        {
+          "key": "inner_agent",
+          "repeat": 3
+        },
+        {
+          "key": "call_inner",
+          "repeat": 2
+        },
+        {
+          "key": "tools",
+          "repeat": 2
+        },
+        {
+          "key": "inner_agent",
+          "repeat": 3
+        },
+        {
+          "key": "finalize",
+          "repeat": 2
+        }
+      ]
+    }
+  ],
+  "project": "lgtest-subgraph_nested-L090953s-r9",
+  "window": {
+    "from": "2026-10-27T09:21:02.031203216Z",
+    "preset": "24h",
+    "to": "2026-10-28T09:21:02.031203216Z"
+  }
+}

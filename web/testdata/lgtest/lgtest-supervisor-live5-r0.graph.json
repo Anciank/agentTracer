@@ -1,0 +1,302 @@
+{
+  "edges": [
+    {
+      "avg_ms": null,
+      "count": 41,
+      "error_count": 0,
+      "from": "agent",
+      "loop": true,
+      "p95_ms": null,
+      "repeat_avg": 3,
+      "repeat_max": 3,
+      "share": 2.1579,
+      "to": "agent"
+    },
+    {
+      "avg_ms": null,
+      "count": 24,
+      "error_count": 1,
+      "from": "tools",
+      "loop": true,
+      "p95_ms": null,
+      "repeat_avg": 2,
+      "repeat_max": 2,
+      "share": 1.2632,
+      "to": "tools"
+    },
+    {
+      "avg_ms": null,
+      "count": 23,
+      "error_count": 0,
+      "from": "tools",
+      "loop": false,
+      "p95_ms": null,
+      "repeat_avg": null,
+      "repeat_max": null,
+      "share": 1.2105,
+      "to": "agent"
+    },
+    {
+      "avg_ms": null,
+      "count": 22,
+      "error_count": 0,
+      "from": "supervisor",
+      "loop": true,
+      "p95_ms": null,
+      "repeat_avg": 3,
+      "repeat_max": 3,
+      "share": 1.1579,
+      "to": "supervisor"
+    },
+    {
+      "avg_ms": null,
+      "count": 13,
+      "error_count": 1,
+      "from": "agent",
+      "loop": false,
+      "p95_ms": null,
+      "repeat_avg": null,
+      "repeat_max": null,
+      "share": 0.6842,
+      "to": "tools"
+    },
+    {
+      "avg_ms": null,
+      "count": 11,
+      "error_count": 0,
+      "from": "agent",
+      "loop": false,
+      "p95_ms": null,
+      "repeat_avg": null,
+      "repeat_max": null,
+      "share": 0.5789,
+      "to": "policy"
+    },
+    {
+      "avg_ms": null,
+      "count": 11,
+      "error_count": 0,
+      "from": "agent",
+      "loop": false,
+      "p95_ms": null,
+      "repeat_avg": null,
+      "repeat_max": null,
+      "share": 0.5789,
+      "to": "supervisor"
+    },
+    {
+      "avg_ms": null,
+      "count": 11,
+      "error_count": 0,
+      "from": "policy",
+      "loop": true,
+      "p95_ms": null,
+      "repeat_avg": 2,
+      "repeat_max": 2,
+      "share": 0.5789,
+      "to": "policy"
+    },
+    {
+      "avg_ms": null,
+      "count": 11,
+      "error_count": 0,
+      "from": "policy",
+      "loop": false,
+      "p95_ms": null,
+      "repeat_avg": null,
+      "repeat_max": null,
+      "share": 0.5789,
+      "to": "tools"
+    },
+    {
+      "avg_ms": null,
+      "count": 11,
+      "error_count": 0,
+      "from": "supervisor",
+      "loop": false,
+      "p95_ms": null,
+      "repeat_avg": null,
+      "repeat_max": null,
+      "share": 0.5789,
+      "to": "agent"
+    },
+    {
+      "avg_ms": null,
+      "count": 1,
+      "error_count": 0,
+      "from": "compose",
+      "loop": true,
+      "p95_ms": null,
+      "repeat_avg": 2,
+      "repeat_max": 2,
+      "share": 0.0526,
+      "to": "compose"
+    },
+    {
+      "avg_ms": null,
+      "count": 1,
+      "error_count": 0,
+      "from": "rank",
+      "loop": false,
+      "p95_ms": null,
+      "repeat_avg": null,
+      "repeat_max": null,
+      "share": 0.0526,
+      "to": "compose"
+    },
+    {
+      "avg_ms": null,
+      "count": 1,
+      "error_count": 0,
+      "from": "retrieve",
+      "loop": false,
+      "p95_ms": null,
+      "repeat_avg": null,
+      "repeat_max": null,
+      "share": 0.0526,
+      "to": "rank"
+    },
+    {
+      "avg_ms": null,
+      "count": 1,
+      "error_count": 0,
+      "from": "retrieve",
+      "loop": true,
+      "p95_ms": null,
+      "repeat_avg": 2,
+      "repeat_max": 2,
+      "share": 0.0526,
+      "to": "retrieve"
+    }
+  ],
+  "edges_hidden": [],
+  "generated_at": "2026-10-28T09:21:02.872167373Z",
+  "nodes": [
+    {
+      "count": 48,
+      "error_count": 2,
+      "error_rate": 0.0417,
+      "key": "tools",
+      "kind": "langgraph",
+      "label": "tools",
+      "p50_ms": 2,
+      "p95_ms": 3,
+      "run_type": null,
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "total": 0
+      },
+      "truncated": false
+    },
+    {
+      "count": 123,
+      "error_count": 0,
+      "error_rate": 0,
+      "key": "agent",
+      "kind": "langgraph",
+      "label": "agent",
+      "p50_ms": 2102,
+      "p95_ms": 3018,
+      "run_type": null,
+      "tokens": {
+        "input": 16400,
+        "output": 1723,
+        "total": 18123
+      },
+      "truncated": false
+    },
+    {
+      "count": 66,
+      "error_count": 0,
+      "error_rate": 0,
+      "key": "supervisor",
+      "kind": "langgraph",
+      "label": "supervisor",
+      "p50_ms": 2116,
+      "p95_ms": 3394,
+      "run_type": null,
+      "tokens": {
+        "input": 1535,
+        "output": 273,
+        "total": 1808
+      },
+      "truncated": false
+    },
+    {
+      "count": 22,
+      "error_count": 0,
+      "error_rate": 0,
+      "key": "policy",
+      "kind": "langgraph",
+      "label": "policy",
+      "p50_ms": 4168,
+      "p95_ms": 5073,
+      "run_type": null,
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "total": 0
+      },
+      "truncated": false
+    },
+    {
+      "count": 2,
+      "error_count": 0,
+      "error_rate": 0,
+      "key": "compose",
+      "kind": "langgraph",
+      "label": "compose",
+      "p50_ms": 2292,
+      "p95_ms": 2292,
+      "run_type": null,
+      "tokens": {
+        "input": 57,
+        "output": 11,
+        "total": 68
+      },
+      "truncated": false
+    },
+    {
+      "count": 2,
+      "error_count": 0,
+      "error_rate": 0,
+      "key": "retrieve",
+      "kind": "langgraph",
+      "label": "retrieve",
+      "p50_ms": null,
+      "p95_ms": null,
+      "run_type": null,
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "total": 0
+      },
+      "truncated": false
+    },
+    {
+      "count": 1,
+      "error_count": 0,
+      "error_rate": 0,
+      "key": "rank",
+      "kind": "langgraph",
+      "label": "rank",
+      "p50_ms": null,
+      "p95_ms": null,
+      "run_type": null,
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "total": 0
+      },
+      "truncated": false
+    }
+  ],
+  "project": "lgtest-supervisor-live5-r0",
+  "trace_count": 19,
+  "window": {
+    "from": "2026-10-27T09:21:02.870739062Z",
+    "preset": "24h",
+    "to": "2026-10-28T09:21:02.870739062Z"
+  }
+}

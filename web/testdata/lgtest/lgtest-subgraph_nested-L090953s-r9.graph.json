@@ -1,0 +1,220 @@
+{
+  "edges": [
+    {
+      "avg_ms": null,
+      "count": 2,
+      "error_count": 0,
+      "from": "inner_agent",
+      "loop": true,
+      "p95_ms": null,
+      "repeat_avg": 3,
+      "repeat_max": 3,
+      "share": 2,
+      "to": "inner_agent"
+    },
+    {
+      "avg_ms": null,
+      "count": 1,
+      "error_count": 0,
+      "from": "call_inner",
+      "loop": true,
+      "p95_ms": null,
+      "repeat_avg": 2,
+      "repeat_max": 2,
+      "share": 1,
+      "to": "call_inner"
+    },
+    {
+      "avg_ms": null,
+      "count": 1,
+      "error_count": 0,
+      "from": "call_inner",
+      "loop": false,
+      "p95_ms": null,
+      "repeat_avg": null,
+      "repeat_max": null,
+      "share": 1,
+      "to": "tools"
+    },
+    {
+      "avg_ms": null,
+      "count": 1,
+      "error_count": 0,
+      "from": "finalize",
+      "loop": true,
+      "p95_ms": null,
+      "repeat_avg": 2,
+      "repeat_max": 2,
+      "share": 1,
+      "to": "finalize"
+    },
+    {
+      "avg_ms": null,
+      "count": 1,
+      "error_count": 0,
+      "from": "inner_agent",
+      "loop": false,
+      "p95_ms": null,
+      "repeat_avg": null,
+      "repeat_max": null,
+      "share": 1,
+      "to": "call_inner"
+    },
+    {
+      "avg_ms": null,
+      "count": 1,
+      "error_count": 0,
+      "from": "inner_agent",
+      "loop": false,
+      "p95_ms": null,
+      "repeat_avg": null,
+      "repeat_max": null,
+      "share": 1,
+      "to": "finalize"
+    },
+    {
+      "avg_ms": null,
+      "count": 1,
+      "error_count": 0,
+      "from": "preamble",
+      "loop": false,
+      "p95_ms": null,
+      "repeat_avg": null,
+      "repeat_max": null,
+      "share": 1,
+      "to": "inner_agent"
+    },
+    {
+      "avg_ms": null,
+      "count": 1,
+      "error_count": 0,
+      "from": "preamble",
+      "loop": true,
+      "p95_ms": null,
+      "repeat_avg": 2,
+      "repeat_max": 2,
+      "share": 1,
+      "to": "preamble"
+    },
+    {
+      "avg_ms": null,
+      "count": 1,
+      "error_count": 0,
+      "from": "tools",
+      "loop": false,
+      "p95_ms": null,
+      "repeat_avg": null,
+      "repeat_max": null,
+      "share": 1,
+      "to": "inner_agent"
+    },
+    {
+      "avg_ms": null,
+      "count": 1,
+      "error_count": 0,
+      "from": "tools",
+      "loop": true,
+      "p95_ms": null,
+      "repeat_avg": 2,
+      "repeat_max": 2,
+      "share": 1,
+      "to": "tools"
+    }
+  ],
+  "edges_hidden": [],
+  "generated_at": "2026-10-28T09:21:02.015656867Z",
+  "nodes": [
+    {
+      "count": 6,
+      "error_count": 0,
+      "error_rate": 0,
+      "key": "inner_agent",
+      "kind": "langgraph",
+      "label": "inner_agent",
+      "p50_ms": 2,
+      "p95_ms": 2,
+      "run_type": null,
+      "tokens": {
+        "input": 24,
+        "output": 16,
+        "total": 40
+      },
+      "truncated": false
+    },
+    {
+      "count": 2,
+      "error_count": 0,
+      "error_rate": 0,
+      "key": "call_inner",
+      "kind": "langgraph",
+      "label": "call_inner",
+      "p50_ms": 7,
+      "p95_ms": 7,
+      "run_type": null,
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "total": 0
+      },
+      "truncated": false
+    },
+    {
+      "count": 2,
+      "error_count": 0,
+      "error_rate": 0,
+      "key": "finalize",
+      "kind": "langgraph",
+      "label": "finalize",
+      "p50_ms": null,
+      "p95_ms": null,
+      "run_type": null,
+      "tokens": {
+        "input": 12,
+        "output": 8,
+        "total": 20
+      },
+      "truncated": false
+    },
+    {
+      "count": 2,
+      "error_count": 0,
+      "error_rate": 0,
+      "key": "preamble",
+      "kind": "langgraph",
+      "label": "preamble",
+      "p50_ms": 1,
+      "p95_ms": 1,
+      "run_type": null,
+      "tokens": {
+        "input": 12,
+        "output": 8,
+        "total": 20
+      },
+      "truncated": false
+    },
+    {
+      "count": 2,
+      "error_count": 0,
+      "error_rate": 0,
+      "key": "tools",
+      "kind": "langgraph",
+      "label": "tools",
+      "p50_ms": 2,
+      "p95_ms": 2,
+      "run_type": null,
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "total": 0
+      },
+      "truncated": false
+    }
+  ],
+  "project": "lgtest-subgraph_nested-L090953s-r9",
+  "trace_count": 1,
+  "window": {
+    "from": "2026-10-27T09:21:02.01464675Z",
+    "preset": "24h",
+    "to": "2026-10-28T09:21:02.01464675Z"
+  }
+}

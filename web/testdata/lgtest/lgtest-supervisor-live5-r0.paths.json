@@ -1,0 +1,110 @@
+{
+  "paths": [
+    {
+      "count": 11,
+      "error_rate": 0,
+      "fingerprint": "supervisor\u00d73>agent\u00d73>policy\u00d72>tools\u00d72>agent\u00d73>supervisor\u00d73",
+      "label": "supervisor \u00d73 \u2192 agent \u00d73 \u2192 policy \u00d72 \u2192 tools \u00d72 \u2192 agent \u00d73 \u2192 supervisor \u00d73",
+      "share": 0.5789,
+      "steps": [
+        {
+          "key": "supervisor",
+          "repeat": 3
+        },
+        {
+          "key": "agent",
+          "repeat": 3
+        },
+        {
+          "key": "policy",
+          "repeat": 2
+        },
+        {
+          "key": "tools",
+          "repeat": 2
+        },
+        {
+          "key": "agent",
+          "repeat": 3
+        },
+        {
+          "key": "supervisor",
+          "repeat": 3
+        }
+      ]
+    },
+    {
+      "count": 6,
+      "error_rate": 0,
+      "fingerprint": "agent\u00d73>tools\u00d72>agent\u00d73>tools\u00d72>agent\u00d73",
+      "label": "agent \u00d73 \u2192 tools \u00d72 \u2192 agent \u00d73 \u2192 tools \u00d72 \u2192 agent \u00d73",
+      "share": 0.3158,
+      "steps": [
+        {
+          "key": "agent",
+          "repeat": 3
+        },
+        {
+          "key": "tools",
+          "repeat": 2
+        },
+        {
+          "key": "agent",
+          "repeat": 3
+        },
+        {
+          "key": "tools",
+          "repeat": 2
+        },
+        {
+          "key": "agent",
+          "repeat": 3
+        }
+      ]
+    },
+    {
+      "count": 1,
+      "error_rate": 1,
+      "fingerprint": "agent\u00d73>tools\u00d72",
+      "label": "agent \u00d73 \u2192 tools \u00d72",
+      "share": 0.0526,
+      "steps": [
+        {
+          "key": "agent",
+          "repeat": 3
+        },
+        {
+          "key": "tools",
+          "repeat": 2
+        }
+      ]
+    },
+    {
+      "count": 1,
+      "error_rate": 0,
+      "fingerprint": "retrieve\u00d72>rank>compose\u00d72",
+      "label": "retrieve \u00d72 \u2192 rank \u2192 compose \u00d72",
+      "share": 0.0526,
+      "steps": [
+        {
+          "key": "retrieve",
+          "repeat": 2
+        },
+        {
+          "key": "rank",
+          "repeat": 1
+        },
+        {
+          "key": "compose",
+          "repeat": 2
+        }
+      ]
+    }
+  ],
+  "project": "lgtest-supervisor-live5-r0",
+  "window": {
+    "from": "2026-10-27T09:21:02.887908209Z",
+    "preset": "24h",
+    "to": "2026-10-28T09:21:02.887908209Z"
+  }
+}

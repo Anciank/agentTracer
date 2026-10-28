@@ -1,0 +1,39 @@
+{
+  "paths": [
+    {
+      "count": 1,
+      "error_rate": 0,
+      "fingerprint": "agent\u00d73>tools\u00d72>agent\u00d73>tools\u00d72>agent\u00d73",
+      "label": "agent \u00d73 \u2192 tools \u00d72 \u2192 agent \u00d73 \u2192 tools \u00d72 \u2192 agent \u00d73",
+      "share": 1,
+      "steps": [
+        {
+          "key": "agent",
+          "repeat": 3
+        },
+        {
+          "key": "tools",
+          "repeat": 2
+        },
+        {
+          "key": "agent",
+          "repeat": 3
+        },
+        {
+          "key": "tools",
+          "repeat": 2
+        },
+        {
+          "key": "agent",
+          "repeat": 3
+        }
+      ]
+    }
+  ],
+  "project": "lgtest-react_tools-smoke1-r0",
+  "window": {
+    "from": "2026-10-27T09:20:59.562686559Z",
+    "preset": "24h",
+    "to": "2026-10-28T09:20:59.562686559Z"
+  }
+}

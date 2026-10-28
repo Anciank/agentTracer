@@ -1,0 +1,97 @@
+{
+  "edges": [
+    {
+      "avg_ms": null,
+      "count": 3,
+      "error_count": 0,
+      "from": "agent",
+      "loop": true,
+      "p95_ms": null,
+      "repeat_avg": 3,
+      "repeat_max": 3,
+      "share": 3,
+      "to": "agent"
+    },
+    {
+      "avg_ms": null,
+      "count": 2,
+      "error_count": 0,
+      "from": "agent",
+      "loop": false,
+      "p95_ms": null,
+      "repeat_avg": null,
+      "repeat_max": null,
+      "share": 2,
+      "to": "tools"
+    },
+    {
+      "avg_ms": null,
+      "count": 2,
+      "error_count": 0,
+      "from": "tools",
+      "loop": false,
+      "p95_ms": null,
+      "repeat_avg": null,
+      "repeat_max": null,
+      "share": 2,
+      "to": "agent"
+    },
+    {
+      "avg_ms": null,
+      "count": 2,
+      "error_count": 0,
+      "from": "tools",
+      "loop": true,
+      "p95_ms": null,
+      "repeat_avg": 2,
+      "repeat_max": 2,
+      "share": 2,
+      "to": "tools"
+    }
+  ],
+  "edges_hidden": [],
+  "generated_at": "2026-10-28T09:20:59.54709644Z",
+  "nodes": [
+    {
+      "count": 9,
+      "error_count": 0,
+      "error_rate": 0,
+      "key": "agent",
+      "kind": "langgraph",
+      "label": "agent",
+      "p50_ms": 2470,
+      "p95_ms": 2906,
+      "run_type": null,
+      "tokens": {
+        "input": 1477,
+        "output": 174,
+        "total": 1651
+      },
+      "truncated": false
+    },
+    {
+      "count": 4,
+      "error_count": 0,
+      "error_rate": 0,
+      "key": "tools",
+      "kind": "langgraph",
+      "label": "tools",
+      "p50_ms": 2,
+      "p95_ms": 2,
+      "run_type": null,
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "total": 0
+      },
+      "truncated": false
+    }
+  ],
+  "project": "lgtest-react_tools-smoke1-r0",
+  "trace_count": 1,
+  "window": {
+    "from": "2026-10-27T09:20:59.546233051Z",
+    "preset": "24h",
+    "to": "2026-10-28T09:20:59.546233051Z"
+  }
+}

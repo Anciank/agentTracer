@@ -31,3 +31,9 @@ export function fmtBytes(n: number): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+/** Null tokens → "—"; real zero totals still show "0 tok". */
+export function fmtTokens(t: { total: number } | null | undefined): string {
+  if (t == null) return "—";
+  return `${(t.total || 0).toLocaleString()} tok`;
+}

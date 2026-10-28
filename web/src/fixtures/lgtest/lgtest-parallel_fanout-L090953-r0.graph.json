@@ -1,0 +1,126 @@
+{
+  "edges": [
+    {
+      "avg_ms": null,
+      "count": 1,
+      "error_count": 0,
+      "from": "join",
+      "loop": true,
+      "p95_ms": null,
+      "repeat_avg": 2,
+      "repeat_max": 2,
+      "share": 1,
+      "to": "join"
+    },
+    {
+      "avg_ms": null,
+      "count": 1,
+      "error_count": 0,
+      "from": "plan",
+      "loop": true,
+      "p95_ms": null,
+      "repeat_avg": 2,
+      "repeat_max": 2,
+      "share": 1,
+      "to": "plan"
+    },
+    {
+      "avg_ms": null,
+      "count": 1,
+      "error_count": 0,
+      "from": "plan",
+      "loop": false,
+      "p95_ms": null,
+      "repeat_avg": null,
+      "repeat_max": null,
+      "share": 1,
+      "to": "worker"
+    },
+    {
+      "avg_ms": null,
+      "count": 1,
+      "error_count": 0,
+      "from": "worker",
+      "loop": false,
+      "p95_ms": null,
+      "repeat_avg": null,
+      "repeat_max": null,
+      "share": 1,
+      "to": "join"
+    },
+    {
+      "avg_ms": null,
+      "count": 1,
+      "error_count": 0,
+      "from": "worker",
+      "loop": true,
+      "p95_ms": null,
+      "repeat_avg": 6,
+      "repeat_max": 6,
+      "share": 1,
+      "to": "worker"
+    }
+  ],
+  "edges_hidden": [],
+  "generated_at": "2026-10-28T09:20:57.929179542Z",
+  "nodes": [
+    {
+      "count": 6,
+      "error_count": 0,
+      "error_rate": 0,
+      "key": "worker",
+      "kind": "langgraph",
+      "label": "worker",
+      "p50_ms": 2617,
+      "p95_ms": 2970,
+      "run_type": null,
+      "tokens": {
+        "input": 54,
+        "output": 46,
+        "total": 100
+      },
+      "truncated": false
+    },
+    {
+      "count": 2,
+      "error_count": 0,
+      "error_rate": 0,
+      "key": "join",
+      "kind": "langgraph",
+      "label": "join",
+      "p50_ms": 1903,
+      "p95_ms": 1904,
+      "run_type": null,
+      "tokens": {
+        "input": 68,
+        "output": 29,
+        "total": 97
+      },
+      "truncated": false
+    },
+    {
+      "count": 2,
+      "error_count": 0,
+      "error_rate": 0,
+      "key": "plan",
+      "kind": "langgraph",
+      "label": "plan",
+      "p50_ms": null,
+      "p95_ms": null,
+      "run_type": null,
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "total": 0
+      },
+      "truncated": false
+    }
+  ],
+  "project": "lgtest-parallel_fanout-L090953-r0",
+  "trace_count": 1,
+  "window": {
+    "from": "2026-10-27T09:20:57.928384283Z",
+    "preset": "24h",
+    "to": "2026-10-28T09:20:57.928384283Z"
+  }
+}

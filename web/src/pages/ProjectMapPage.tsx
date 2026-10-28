@@ -212,6 +212,7 @@ export default function ProjectMapPage({ embedded, projectIdProp, windowProp }: 
       <div className="map-body">
         <AgentMap
           graph={graph}
+          paths={paths}
           showHiddenEdges={showHidden}
           expandOther={expandOther}
           findQuery={findQuery}
@@ -232,16 +233,33 @@ export default function ProjectMapPage({ embedded, projectIdProp, windowProp }: 
           )}
           {!paths.length && !pathsQ.isLoading && !pathsQ.isError && <div className="hint">No path groups</div>}
           <ul className="paths-list">
-            {paths.map((p) => (
+            {paths.map((p) => {
+              const errish = p.error_rate >= 0.05;
+              const runLabel = p.count === 1 ? "1 run" : `${fmtInt(p.count)} runs`;
+              return (
               <li key={p.fingerprint}>
-                <button type="button" className="path-row" onClick={() => onPathClick(p)}>
-                  <div className="path-label">{p.label}</div>
+                <button
+                  type="button"
+                  className={`path-row${errish ? " path-row-err" : ""}`}
+                  onClick={() => onPathClick(p)}
+                >
+                  <div className="path-label" title={p.label}>
+                    {(p.steps?.length ? p.steps : [{ key: p.fingerprint, repeat: 1 }]).map((s, i) => (
+                      <span key={`${s.key}-${i}`} className="path-step-wrap">
+                        {i > 0 ? <span className="path-arrow" aria-hidden>→</span> : null}
+                        <span className="path-step">
+                          {s.key}{s.repeat > 1 ? ` ×${s.repeat}` : ""}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
                   <div className="path-meta">
-                    {fmtInt(p.count)} runs · {fmtPct(p.share)} · err {fmtPct(p.error_rate)}
+                    {runLabel} · {fmtPct(p.share)} · err {fmtPct(p.error_rate)}
                   </div>
                 </button>
               </li>
-            ))}
+              );
+            })}
           </ul>
         </aside>
       </div>

@@ -86,9 +86,29 @@ function mockDrillIds(params: TraceListParams): Set<string> | null {
   return hit ? ids : null;
 }
 
+/**
+ * Real LangGraph captures for DEV mock. Loaded only via dynamic import from this
+ * mock module (tree-shaken from prod). Canonical copies for selftests live in
+ * web/testdata/lgtest (never embedded).
+ */
+const LGTEST_GRAPH: Record<string, () => Promise<{ default: unknown }>> = {
+  "lgtest-supervisor-live5-r0": () => import("../fixtures/lgtest/lgtest-supervisor-live5-r0.graph.json"),
+  "lgtest-parallel_fanout-L090953-r0": () => import("../fixtures/lgtest/lgtest-parallel_fanout-L090953-r0.graph.json"),
+  "lgtest-react_tools-smoke1-r0": () => import("../fixtures/lgtest/lgtest-react_tools-smoke1-r0.graph.json"),
+  "lgtest-subgraph_nested-L090953s-r9": () => import("../fixtures/lgtest/lgtest-subgraph_nested-L090953s-r9.graph.json"),
+};
+const LGTEST_PATHS: Record<string, () => Promise<{ default: unknown }>> = {
+  "lgtest-supervisor-live5-r0": () => import("../fixtures/lgtest/lgtest-supervisor-live5-r0.paths.json"),
+  "lgtest-parallel_fanout-L090953-r0": () => import("../fixtures/lgtest/lgtest-parallel_fanout-L090953-r0.paths.json"),
+  "lgtest-react_tools-smoke1-r0": () => import("../fixtures/lgtest/lgtest-react_tools-smoke1-r0.paths.json"),
+  "lgtest-subgraph_nested-L090953s-r9": () => import("../fixtures/lgtest/lgtest-subgraph_nested-L090953s-r9.paths.json"),
+};
+
 export async function getGraph(projectId: string, params: GraphParams = {}): Promise<GraphResponse> {
   const g = await import("../fixtures/graph");
   _drill = g;
+  const loader = LGTEST_GRAPH[projectId];
+  if (loader) return (await loader()).default as GraphResponse;
   const w = (params.window || "24h") as GraphWindow;
   return g.getGraphFixture(projectId, w);
 }
@@ -96,6 +116,8 @@ export async function getGraph(projectId: string, params: GraphParams = {}): Pro
 export async function getPaths(projectId: string, params: PathsParams = {}): Promise<PathsResponse> {
   const g = await import("../fixtures/graph");
   _drill = g;
+  const loader = LGTEST_PATHS[projectId];
+  if (loader) return (await loader()).default as PathsResponse;
   const w = (params.window || "24h") as GraphWindow;
   return g.getPathsFixture(projectId, w);
 }

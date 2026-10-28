@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { EdgeStats, GraphResponse, NodeStats } from "../api/types";
+import type { EdgeStats, GraphResponse, NodeStats, PathGroup } from "../api/types";
 import {
   FAIL_ERROR_RATE,
   isFailingNode,
@@ -7,13 +7,21 @@ import {
   layoutGraph,
   type LayoutNode,
 } from "../lib/graphLayout";
-import { fmtDurMs, fmtInt, fmtPct } from "../lib/format";
+import { fmtDurMs, fmtInt, fmtPct, fmtTokens } from "../lib/format";
+
+/** Backend often sends {0,0,0} when no token samples — show — if latency also null. */
+function fmtNodeTok(s: NodeStats): string {
+  if (s.tokens == null) return "—";
+  if (s.tokens.total === 0 && s.p95_ms == null && s.p50_ms == null) return "—";
+  return fmtTokens(s.tokens);
+}
 
 /** Fit never zooms out below this so 13px meta ≥ ~11px effective. Pan/scroll for the rest. */
 const MIN_FIT_ZOOM = 0.85;
 
 type Props = {
   graph: GraphResponse;
+  paths?: PathGroup[];
   showHiddenEdges: boolean;
   expandOther: boolean;
   findQuery: string;
@@ -40,14 +48,16 @@ function nodeStroke(n: NodeStats, highlight: boolean): string {
   return "var(--border)";
 }
 
-function edgeLabel(e: EdgeStats): string {
-  const base = fmtInt(e.count);
-  if (e.loop && e.repeat_max != null) {
-    const n = Math.round(e.repeat_avg ?? e.repeat_max);
-    return `${base} ×${n}`;
+function edgeLabel(kind: "forward" | "back" | "self", e: EdgeStats): string {
+  // Self / repeat: show avg repeats (×N), never share (>1 is not a share %).
+  if (kind === "self") {
+    const n = e.repeat_avg != null ? Math.round(e.repeat_avg) : e.repeat_max != null ? Math.round(e.repeat_max) : null;
+    return n != null && n > 0 ? `×${n}` : "↻";
   }
-  if (e.loop) return `${base} ×N`;
-  return base;
+  if (kind === "back" && e.repeat_avg != null && e.share > 1) {
+    return `×${Math.round(e.repeat_avg)}`;
+  }
+  return fmtInt(e.count);
 }
 
 declare global {
@@ -64,6 +74,7 @@ declare global {
 
 export function AgentMap({
   graph,
+  paths,
   showHiddenEdges,
   expandOther,
   findQuery,
@@ -88,8 +99,8 @@ export function AgentMap({
 
   const layout = useMemo(() => {
     layoutStart.current = performance.now();
-    return layoutGraph(graph.nodes, edges, { expandOther });
-  }, [graph.nodes, edges, expandOther]);
+    return layoutGraph(graph.nodes, edges, { expandOther, paths });
+  }, [graph.nodes, edges, expandOther, paths]);
 
   const layoutMs = useMemo(() => {
     return performance.now() - layoutStart.current;
@@ -227,7 +238,7 @@ export function AgentMap({
           {fmtInt(s.count)} · err {fmtPct(s.error_rate)}
         </text>
         <text x={12} y={60} className="map-meta">
-          p95 {fmtDurMs(s.p95_ms)} · {fmtInt(s.tokens.total)} tok
+          p95 {fmtDurMs(s.p95_ms)} · {fmtNodeTok(s)}
         </text>
         {failing && !n.isOther && (
           <circle cx={n.w - 10} cy={10} r={5} fill="var(--error)" />
@@ -276,10 +287,14 @@ export function AgentMap({
             </filter>
           </defs>
           <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
-            {layout.edges.map((e) => (
+            {layout.edges.map((e) => {
+              const label = edgeLabel(e.kind, e.stats);
+              const lw = Math.max(e.kind === "self" ? 22 : 28, label.length * 6.5 + 8);
+              return (
               <g
                 key={e.id}
                 data-edge={e.id}
+                data-edge-kind={e.kind}
                 className="map-edge"
                 style={{ cursor: "pointer" }}
                 onClick={(ev) => {
@@ -292,26 +307,28 @@ export function AgentMap({
                   d={e.d}
                   fill="none"
                   stroke={e.stats.error_count > 0 ? "var(--error)" : "var(--muted)"}
-                  strokeWidth={e.stats.loop ? 2 : 1.5}
-                  strokeOpacity={0.75}
+                  strokeWidth={e.kind === "self" ? 1.75 : e.kind === "back" ? 1.75 : 1.5}
+                  strokeOpacity={e.kind === "back" ? 0.55 : 0.75}
+                  strokeDasharray={e.kind === "back" ? "5 3" : undefined}
                   markerEnd="url(#arrow)"
                 />
                 <g transform={`translate(${e.labelX},${e.labelY})`}>
                   <rect
-                    x={-18}
+                    x={-lw / 2}
                     y={-9}
-                    width={Math.max(36, edgeLabel(e.stats).length * 6.5)}
+                    width={lw}
                     height={16}
                     rx={4}
                     fill="var(--panel)"
                     stroke="var(--border)"
                   />
                   <text textAnchor="middle" y={3} className="map-edge-label">
-                    {edgeLabel(e.stats)}
+                    {label}
                   </text>
                 </g>
               </g>
-            ))}
+              );
+            })}
             {layout.nodes.map(renderNode)}
           </g>
         </svg>
