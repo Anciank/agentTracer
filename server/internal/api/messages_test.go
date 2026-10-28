@@ -226,6 +226,106 @@ func TestNormalizeMessagesChainLCSerialized(t *testing.T) {
 	}
 }
 
+func TestNormalizeMessagesPlainTextGenerationNoMessage(t *testing.T) {
+	// LLM ChatGeneration with only {text} — no .message field.
+	// Must still surface as an assistant message with a non-empty role.
+	outputs := map[string]any{
+		"generations": []any{
+			[]any{
+				map[string]any{
+					"text":            "hello from plain generation",
+					"generation_info": map[string]any{"finish_reason": "stop"},
+				},
+			},
+		},
+	}
+	out := NormalizeMessages(nil, outputs)
+	msgs := asMsgMaps(t, out["messages"])
+	if len(msgs) != 1 {
+		t.Fatalf("want 1 message from plain text generation, got %d path=%v msgs=%v", len(msgs), out["raw_path"], msgs)
+	}
+	if asStr(msgs[0]["role"]) != "assistant" {
+		t.Fatalf("role want assistant got %q full=%v", msgs[0]["role"], msgs[0])
+	}
+	if contentText(msgs[0]) != "hello from plain generation" {
+		t.Fatalf("content %v", msgs[0]["content"])
+	}
+	assertEveryMessageHasRole(t, msgs)
+}
+
+func TestNormalizeMessagesGenerationsMixedPlainAndMessage(t *testing.T) {
+	outputs := map[string]any{
+		"generations": []any{
+			[]any{
+				map[string]any{"text": "plain-only"},
+				map[string]any{
+					"text": "with-msg",
+					"message": map[string]any{
+						"lc": 1, "type": "constructor",
+						"id":     []any{"langchain_core", "messages", "AIMessage"},
+						"kwargs": map[string]any{"content": "with-msg", "type": "ai"},
+					},
+				},
+			},
+		},
+	}
+	out := NormalizeMessages(nil, outputs)
+	msgs := asMsgMaps(t, out["messages"])
+	if len(msgs) != 2 {
+		t.Fatalf("want 2 got %d %v", len(msgs), msgs)
+	}
+	for i, m := range msgs {
+		if asStr(m["role"]) != "assistant" {
+			t.Fatalf("msg[%d] role=%q want assistant: %v", i, m["role"], m)
+		}
+	}
+	if contentText(msgs[0]) != "plain-only" || contentText(msgs[1]) != "with-msg" {
+		t.Fatalf("contents %q %q", contentText(msgs[0]), contentText(msgs[1]))
+	}
+	assertEveryMessageHasRole(t, msgs)
+}
+
+func TestNormalizeMessagesNeverEmptyRoleOnOutputSide(t *testing.T) {
+	// Content-only map with no role/type/id — output-side default must be assistant.
+	outputs := map[string]any{
+		"messages": []any{
+			map[string]any{"content": "who am i"},
+		},
+	}
+	out := NormalizeMessages(nil, outputs)
+	msgs := asMsgMaps(t, out["messages"])
+	if len(msgs) != 1 {
+		t.Fatalf("len %d", len(msgs))
+	}
+	if asStr(msgs[0]["role"]) != "assistant" {
+		t.Fatalf("role want assistant got %q", msgs[0]["role"])
+	}
+	assertEveryMessageHasRole(t, msgs)
+}
+
+func TestNormalizeOneMessageFlatGenerationTextField(t *testing.T) {
+	m := normalizeOneMessage(0, map[string]any{"text": "solo text field"}, "langchain")
+	if asStr(m["role"]) != "assistant" {
+		t.Fatalf("role %q", m["role"])
+	}
+	if contentText(m) != "solo text field" {
+		t.Fatalf("content %v", m["content"])
+	}
+}
+
+func assertEveryMessageHasRole(t *testing.T, msgs []map[string]any) {
+	t.Helper()
+	for i, m := range msgs {
+		role := asStr(m["role"])
+		if role == "" {
+			t.Fatalf("message[%d] has empty role: %v", i, m)
+		}
+		if _, ok := m["role"]; !ok {
+			t.Fatalf("message[%d] missing role key: %v", i, m)
+		}
+	}
+}
+
 func asMsgMaps(t *testing.T, v any) []map[string]any {
 	t.Helper()
 	switch msgs := v.(type) {

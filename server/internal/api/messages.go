@@ -95,13 +95,21 @@ func sniffMessages(blob any, root string) *msgHit {
 	}
 	if gens, ok := m["generations"].([]any); ok {
 		var msgs []any
+		hadMessage := false
+		hadPlainText := false
 		for _, g := range gens {
 			row, _ := g.([]any)
 			if row == nil {
-				// flat generations[*].message
+				// flat generations[*]
 				if cm, ok := g.(map[string]any); ok {
-					if msg, ok := cm["message"]; ok {
+					msg, plain := generationToMessage(cm)
+					if msg != nil {
 						msgs = append(msgs, msg)
+						if plain {
+							hadPlainText = true
+						} else {
+							hadMessage = true
+						}
 					}
 				}
 				continue
@@ -111,16 +119,61 @@ func sniffMessages(blob any, root string) *msgHit {
 				if cm == nil {
 					continue
 				}
-				if msg, ok := cm["message"]; ok {
+				msg, plain := generationToMessage(cm)
+				if msg != nil {
 					msgs = append(msgs, msg)
+					if plain {
+						hadPlainText = true
+					} else {
+						hadMessage = true
+					}
 				}
 			}
 		}
 		if len(msgs) > 0 {
-			return &msgHit{path: root + ".generations[*][*].message", msgs: msgs, src: "langchain"}
+			path := root + ".generations[*][*].message"
+			if hadPlainText && !hadMessage {
+				path = root + ".generations[*][*].text"
+			} else if hadPlainText && hadMessage {
+				path = root + ".generations[*][*]"
+			}
+			return &msgHit{path: path, msgs: msgs, src: "langchain"}
 		}
 	}
 	return try(root, blob, "unknown")
+}
+
+// generationToMessage extracts a chat message from one LLM generation cell.
+// Prefer .message (AIMessage / AIMessageChunk / LC / OpenAI-style). When the
+// cell is a plain {text: "..."} ChatGeneration with no .message, synthesize an
+// assistant message from .text so the UI always gets a normalized role.
+// plain=true when the message was synthesized from .text only.
+func generationToMessage(cm map[string]any) (msg any, plain bool) {
+	if cm == nil {
+		return nil, false
+	}
+	if m, ok := cm["message"]; ok && m != nil {
+		return m, false
+	}
+	// OpenAI-style choice nested under the generation (rare but handled).
+	if ch, ok := cm["choices"].([]any); ok {
+		for _, c := range ch {
+			cm2, _ := c.(map[string]any)
+			if cm2 == nil {
+				continue
+			}
+			if m, ok := cm2["message"]; ok && m != nil {
+				return m, false
+			}
+		}
+	}
+	if _, hasText := cm["text"]; hasText {
+		return map[string]any{
+			"role":    "assistant",
+			"content": cm["text"],
+		}, true
+	}
+	return nil, false
 }
 
 func hasAny(m map[string]any, keys ...string) bool {
@@ -302,7 +355,24 @@ func normalizeOneMessage(i int, raw any, defaultSrc string) map[string]any {
 		}
 	}
 
+	// Plain generation cells and some SDK dumps put body in "text" not "content".
+	if m["content"] == nil {
+		if _, ok := m["text"]; ok {
+			m["content"] = m["text"]
+		}
+	}
+
 	role = mapMessageRole(role)
+	// Never leave role empty: infer from LC id path one more time, then source
+	// position (langchain/generations/outputs → assistant), then hard default.
+	if role == "" {
+		if r := roleFromLCID(m["id"]); r != "" {
+			role = r
+		}
+	}
+	if role == "" {
+		role = defaultRoleForSource(defaultSrc)
+	}
 	name := m["name"]
 	if name == nil || asStr(name) == "" {
 		name = nil
@@ -328,6 +398,9 @@ func normalizeOneMessage(i int, raw any, defaultSrc string) map[string]any {
 	id := fmt.Sprintf("m%d", i)
 	if rid := extractMessageID(m); rid != "" {
 		id = rid
+	}
+	if role == "" {
+		role = "assistant"
 	}
 	return map[string]any{
 		"id": id, "role": role, "name": name,
@@ -419,6 +492,18 @@ func roleFromLCID(id any) string {
 	return ""
 }
 
+// defaultRoleForSource picks a non-empty role when nothing else could be inferred.
+// Output / generation / langchain paths default to assistant; unknown stays assistant
+// so the UI never has to guess from run_type alone.
+func defaultRoleForSource(src string) string {
+	switch strings.ToLower(strings.TrimSpace(src)) {
+	case "openai", "anthropic", "langchain", "unknown", "":
+		return "assistant"
+	default:
+		return "assistant"
+	}
+}
+
 func mapMessageRole(role string) string {
 	r := strings.ToLower(strings.TrimSpace(role))
 	switch r {
@@ -439,8 +524,14 @@ func mapMessageRole(role string) string {
 		// Strip common suffixes for future LC classes
 		for _, suf := range []string{"messagechunk", "message"} {
 			if strings.HasSuffix(r, suf) && len(r) > len(suf) {
-				return mapMessageRole(strings.TrimSuffix(r, suf))
+				mapped := mapMessageRole(strings.TrimSuffix(r, suf))
+				if mapped != "" {
+					return mapped
+				}
 			}
+		}
+		if r == "" {
+			return "assistant"
 		}
 		return r
 	}
