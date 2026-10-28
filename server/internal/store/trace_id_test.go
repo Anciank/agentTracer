@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/Anciank/agentTracer/server/internal/traces"
@@ -155,5 +156,146 @@ func TestOutOfOrderChildBeforeParentGroupsUnderRoot(t *testing.T) {
 	}
 	if n, _ := sum["run_count"].(int); n != 2 {
 		t.Fatalf("run_count=%v", sum["run_count"])
+	}
+}
+
+// uibroDottedPart mirrors /tmp/ingest_m3_final.py dotted_part:
+// compact UTC stamp + undashed first 8 hex of the uuid.
+func uibroDottedPart(ts, id string) string {
+	hex := strings.ReplaceAll(id, "-", "")
+	if len(hex) > 8 {
+		hex = hex[:8]
+	}
+	return ts + hex
+}
+
+func TestRootTraceIDFromDottedOrderShortHexIsNil(t *testing.T) {
+	// Short hex alone must NOT parse as a UUID (that was the UIBro miss).
+	ts := "20261028T074333745856Z"
+	root := "d23b9ff8-0793-43c5-8542-4e71baed406a"
+	child := "093bdce7-39e0-46c9-8698-18158d893090"
+	dotted := uibroDottedPart(ts, root) + "." + uibroDottedPart("20261028T074333695856Z", child)
+	if got := rootTraceIDFromDottedOrder(dotted); got != nil {
+		t.Fatalf("short-hex dotted_order must not parse as UUID, got %v (dotted=%q)", got, dotted)
+	}
+}
+
+func TestResolveTraceIDUIBroShortHexChildBeforeParent(t *testing.T) {
+	// Exact UIBro shape from ingest_m3_final.py / oo_child_run.json:
+	// create_run(early_child_llm) BEFORE oo_parent_chain, no trace_id arg,
+	// parent_run_id=root, dotted_order uses undashed[:8] suffixes.
+	root := uuid.MustParse("d23b9ff8-0793-43c5-8542-4e71baed406a")
+	child := uuid.MustParse("093bdce7-39e0-46c9-8698-18158d893090")
+	tsRoot := "20261028T074333745856Z"
+	tsChild := "20261028T074333695856Z"
+	childDotted := uibroDottedPart(tsRoot, root.String()) + "." + uibroDottedPart(tsChild, child.String())
+	rootDotted := uibroDottedPart(tsRoot, root.String())
+
+	if want := "20261028T074333745856Zd23b9ff8.20261028T074333695856Z093bdce7"; childDotted != want {
+		t.Fatalf("fixture dotted_order=%q want %q", childDotted, want)
+	}
+
+	var s *Store // nil: parent not in DB yet (OOO)
+	// Client often stamps trace_id=id when omitted on create_run.
+	childMerged := map[string]any{
+		"id": child.String(), "trace_id": child.String(), "parent_run_id": root.String(),
+		"dotted_order": childDotted, "name": "early_child_llm", "run_type": "llm",
+	}
+	got := s.resolveTraceID(context.Background(), child, childMerged)
+	if got == nil || *got != root {
+		t.Fatalf("child trace_id=%v want root %s", got, root)
+	}
+
+	// Missing trace_id (strict create_run omit) also derives via short-hex+parent.
+	childMerged2 := map[string]any{
+		"id": child.String(), "parent_run_id": root.String(),
+		"dotted_order": childDotted, "name": "early_child_llm", "run_type": "llm",
+	}
+	got2 := s.resolveTraceID(context.Background(), child, childMerged2)
+	if got2 == nil || *got2 != root {
+		t.Fatalf("omit-trace child=%v want %s", got2, root)
+	}
+
+	rootMerged := map[string]any{
+		"id": root.String(), "trace_id": root.String(),
+		"dotted_order": rootDotted, "name": "oo_parent_chain", "run_type": "chain",
+	}
+	gotRoot := s.resolveTraceID(context.Background(), root, rootMerged)
+	if gotRoot == nil || *gotRoot != root {
+		t.Fatalf("root=%v", gotRoot)
+	}
+
+	// Waterfall grouping + run_count == 2 under the parent trace.
+	runs := []map[string]any{
+		{
+			"id": child.String(), "trace_id": got.String(), "parent_run_id": root.String(),
+			"name": "early_child_llm", "run_type": "llm", "dotted_order": childDotted,
+			"start_time": "2026-10-28T07:43:33.695856Z",
+			"end_time":   "2026-10-28T07:43:33.715856Z",
+		},
+		{
+			"id": root.String(), "trace_id": root.String(),
+			"name": "oo_parent_chain", "run_type": "chain", "dotted_order": rootDotted,
+			"start_time": "2026-10-28T07:43:33.745856Z",
+			"end_time":   "2026-10-28T07:43:33.755856Z",
+		},
+	}
+	detail := traces.TraceDetail(root.String(), runs)
+	rows, _ := detail["rows"].([]map[string]any)
+	if len(rows) != 2 {
+		t.Fatalf("rows=%d detail=%v", len(rows), detail)
+	}
+	var rootDepth, childDepth = -1, -1
+	for _, r := range rows {
+		switch r["id"] {
+		case root.String():
+			rootDepth = r["depth"].(int)
+		case child.String():
+			childDepth = r["depth"].(int)
+		}
+	}
+	if rootDepth != 0 || childDepth != 1 {
+		t.Fatalf("depths root=%d child=%d", rootDepth, childDepth)
+	}
+	sum, _ := detail["summary"].(map[string]any)
+	if n, _ := sum["run_count"].(int); n != 2 {
+		t.Fatalf("run_count=%v want 2", sum["run_count"])
+	}
+}
+
+func TestResolveTraceIDUndashedFullUUID(t *testing.T) {
+	root := uuid.MustParse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+	child := uuid.MustParse("11111111-2222-3333-4444-555555555555")
+	ts := "20260115T120304056789Z"
+	undashedRoot := strings.ReplaceAll(root.String(), "-", "")
+	undashedChild := strings.ReplaceAll(child.String(), "-", "")
+	dotted := ts + undashedRoot + "." + "20260115T120304100000Z" + undashedChild
+	merged := map[string]any{
+		"id": child.String(), "trace_id": child.String(), "parent_run_id": root.String(),
+		"dotted_order": dotted,
+	}
+	var s *Store
+	got := s.resolveTraceID(context.Background(), child, merged)
+	if got == nil || *got != root {
+		t.Fatalf("got %v want %s", got, root)
+	}
+}
+
+func TestSuffixPrefixesUUIDRejectsShortAndNonHex(t *testing.T) {
+	id := uuid.MustParse("d23b9ff8-0793-43c5-8542-4e71baed406a")
+	if !suffixPrefixesUUID("d23b9ff8", id) {
+		t.Fatal("8-hex prefix should match")
+	}
+	if !suffixPrefixesUUID("D23B9FF8", id) {
+		t.Fatal("case-insensitive")
+	}
+	if suffixPrefixesUUID("d23b9ff", id) { // 7 chars
+		t.Fatal("need >= 8")
+	}
+	if suffixPrefixesUUID("zzzzzzzz", id) {
+		t.Fatal("non-hex")
+	}
+	if suffixPrefixesUUID("093bdce7", id) {
+		t.Fatal("other uuid prefix must not match")
 	}
 }
