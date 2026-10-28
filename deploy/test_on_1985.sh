@@ -13,6 +13,13 @@ COMPOSE_FILES="-f docker-compose.yml -f deploy/docker-compose.at-m2.yml"
 # shellcheck disable=SC2086
 compose() { docker compose -p "$COMPOSE_PROJECT" $COMPOSE_FILES "$@"; }
 
+cleanup_at_m2() {
+  echo "[1985-test] cleanup trap: down -v OUR at-m2 only" >&2
+  compose down -v || docker compose -p at-m2 down -v || true
+}
+trap cleanup_at_m2 EXIT
+
+
 DUMP="${AGENTTRACER_DUMP:-$HOME/backups/drill/prod-for-drill-20261028-092601.sql.gz}"
 PROD_COUNTS_EXPECT="${AGENTTRACER_PROD_COUNTS:-attachments=1
 feedback=0
@@ -73,8 +80,8 @@ echo "[1985-test] restore prod dump"
 AGENTTRACER_DUMP="$DUMP" AGENTTRACER_PG_CONTAINER=at-m2-postgres \
   "$REPO_ROOT/deploy/restore_drill.sh" | tee /tmp/at-ops-restore-counts.txt
 
-echo "[1985-test] restart app so migrations.Up bootstraps schema_migrations on restored DB"
-compose up -d --no-deps app
+echo "[1985-test] force-recreate app so migrations.Up bootstraps schema_migrations on restored DB"
+compose up -d --no-deps --force-recreate --renew-anon-volumes app
 sleep 3
 for i in $(seq 1 30); do
   curl -fsS "$HEALTH_URL" >/dev/null 2>&1 && break
@@ -82,7 +89,7 @@ for i in $(seq 1 30); do
 done
 
 echo "[1985-test] schema_migrations (expect 001-005 after bootstrap+005)"
-docker exec at-m2-postgres psql -U agenttracer -d agenttracer -c \
+docker exec at-m2-postgres psql -U agenttracer -d agenttracer -v ON_ERROR_STOP=1 -c \
   "SELECT version, applied_at FROM schema_migrations ORDER BY 1"
 SM_VERS="$(docker exec at-m2-postgres psql -U agenttracer -d agenttracer -t -A -c \
   "SELECT string_agg(version, ',' ORDER BY version) FROM schema_migrations")"
@@ -169,6 +176,7 @@ curl -fsS "$HEALTH_URL"; echo
 docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}' | grep -E 'at-m2|NAME' || true
 
 echo "[1985-test] tearing down OUR at-m2 stack (down -v)"
+trap - EXIT
 compose down -v
 
 echo "[1985-test] verify no at-m2 leftovers"
