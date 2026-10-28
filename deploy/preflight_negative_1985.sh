@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # :1985 negative suite (after CodeBro/TestingBro handoff). Two cases:
 #   1) Poison-tag preflight abort (throwaway tag only — never real silo/postgres).
-#   2) Image rename → rollback dry-run (old at-m2-app name → agenttracer-app:local,
+#   2) Image rename → rollback dry-run (old at-m2-app name → agenttracer-at-m2:local,
 #      forced post-up identity mismatch, verify rollback restores old image + health).
 #
 # Ready-to-run (single command):
@@ -35,7 +35,9 @@ trap cleanup_poison EXIT
 
 # Prefer an existing app image for the throwaway poison tag. If none, build
 # agenttracer-app:local once (does not start :1985).
-if docker image inspect agenttracer-app:local >/dev/null 2>&1; then
+if docker image inspect agenttracer-at-m2:local >/dev/null 2>&1; then
+  docker tag agenttracer-at-m2:local "$POISON_TAG"
+elif docker image inspect agenttracer-app:local >/dev/null 2>&1; then
   docker tag agenttracer-app:local "$POISON_TAG"
 elif docker image inspect agenttracer-app:latest >/dev/null 2>&1; then
   docker tag agenttracer-app:latest "$POISON_TAG"

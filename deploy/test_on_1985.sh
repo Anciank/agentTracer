@@ -105,13 +105,13 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-echo "[1985-test] schema_migrations (expect 001-005 after bootstrap+005)"
+echo "[1985-test] schema_migrations (expect 001-006 after bootstrap+005+006)"
 docker exec at-m2-postgres psql -U agenttracer -d agenttracer -v ON_ERROR_STOP=1 -c \
   "SELECT version, applied_at FROM schema_migrations ORDER BY 1"
 SM_VERS="$(docker exec at-m2-postgres psql -U agenttracer -d agenttracer -t -A -c \
   "SELECT string_agg(version, ',' ORDER BY version) FROM schema_migrations")"
 echo "[1985-test] schema_migrations versions: $SM_VERS"
-WANT_SM="001_init,002_run_metrics,003_langgraph,004_agent_map,005_trace_graph_cache"
+WANT_SM="001_init,002_run_metrics,003_langgraph,004_agent_map,005_trace_graph_cache,006_graph_cache_lat_sentinel"
 if [[ "$SM_VERS" != "$WANT_SM" ]]; then
   echo "ERROR: schema_migrations want $WANT_SM got $SM_VERS" >&2
   exit 1

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # :1985 dry-run for the first prod deploy image rename:
-#   old compose default name (at-m2-app) → agenttracer-app:local
+#   old compose default name (at-m2-app) → agenttracer-at-m2:local
 # Exercises deploy.sh rollback-prev pin + post-up identity failure → restore.
 #
 # Called from preflight_negative_1985.sh after the poison-tag case.
@@ -20,7 +20,7 @@ COMPOSE_PROJECT=at-m2
 COMPOSE_FILES="-f docker-compose.yml -f deploy/docker-compose.at-m2.yml"
 OLD_IMAGE_OVERRIDE="/tmp/at-m2-old-app-image.yml"
 HEALTH_URL="${AGENTTRACER_HEALTH_URL:-http://127.0.0.1:1985/health}"
-OLD_APP_IMAGE="at-m2-app" # pre-ops-pin style: project-namespaced, not agenttracer-app:local
+OLD_APP_IMAGE="at-m2-app" # pre-explicit-name style: project-namespaced default
 
 # shellcheck disable=SC2086
 compose() { docker compose -p "$COMPOSE_PROJECT" $COMPOSE_FILES "$@"; }
@@ -33,7 +33,7 @@ cleanup() {
   echo "[rename-rb] cleanup: down -v OUR at-m2 only" >&2
   compose down -v 2>/dev/null || docker compose -p at-m2 down -v 2>/dev/null || true
   rm -f "$OLD_IMAGE_OVERRIDE"
-  docker image rm -f "${COMPOSE_PROJECT}-app:rollback-prev" >/dev/null 2>&1 || true
+  docker image rm -f "agenttracer-at-m2:rollback-prev" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -94,7 +94,7 @@ echo "[rename-rb] phase A running image_id=$OLD_IMAGE_ID config_image=$OLD_CONFI
 [[ "$OLD_CONFIG_IMAGE" == "$OLD_APP_IMAGE" || "$OLD_CONFIG_IMAGE" == "$OLD_APP_IMAGE:"* ]] \
   || echo "[rename-rb] WARN: expected Config.Image ~ $OLD_APP_IMAGE, got $OLD_CONFIG_IMAGE"
 
-# --- Phase B: deploy.sh renames to agenttracer-app:local, then forced mismatch → rollback ---
+# --- Phase B: deploy.sh renames to agenttracer-at-m2:local, then forced mismatch → rollback ---
 echo "[rename-rb] phase B: deploy.sh with AGENTTRACER_FORCE_STARTUP_MISMATCH=1 (expect rollback)"
 set +e
 AGENTTRACER_COMPOSE_PROJECT="$COMPOSE_PROJECT" \
@@ -131,9 +131,9 @@ if [[ "$NEW_IMAGE_ID" != "$OLD_IMAGE_ID" ]]; then
   exit 1
 fi
 
-# Compose pin is now agenttracer-app:local; rollback retags old content onto that name.
+# Compose pin is now agenttracer-at-m2:local; rollback retags old content onto that name.
 case "$NEW_CONFIG_IMAGE" in
-  agenttracer-app:local|agenttracer-app:*)
+  agenttracer-at-m2:local|agenttracer-at-m2:*)
     echo "[rename-rb] Config.Image is new-style name with old content — rename+rollback path OK"
     ;;
   *)
@@ -142,10 +142,10 @@ case "$NEW_CONFIG_IMAGE" in
 esac
 
 # Confirm rollback-prev was created during deploy
-if docker image inspect "${COMPOSE_PROJECT}-app:rollback-prev" >/dev/null 2>&1; then
+if docker image inspect "agenttracer-at-m2:rollback-prev" >/dev/null 2>&1; then
   echo "[rename-rb] rollback-prev tag present"
 else
-  echo "[rename-rb] WARN: ${COMPOSE_PROJECT}-app:rollback-prev not found after deploy (may have been unused if PREV used by id)"
+  echo "[rename-rb] WARN: agenttracer-at-m2:rollback-prev not found after deploy (may have been unused if PREV used by id)"
 fi
 
 echo "[rename-rb] OK — old image restored and healthy after forced identity mismatch"

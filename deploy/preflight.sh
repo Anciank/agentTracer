@@ -26,10 +26,33 @@ FORBIDDEN_APP_NAMES_REGEX='^(docker\.io/)?(pgsty/silo|postgres|library/postgres|
 fail() { echo "[preflight] ERROR: $*" >&2; exit 1; }
 info() { echo "[preflight] $*"; }
 
-# Resolve image id for a compose service: prefer running container, else compose image ref.
+# Resolve compose image ref for a service WITHOUT config --images
+# (Compose 2.40.x ignores the service filter; order is nondeterministic).
+# Use config --format json for per-service image; re-attach known digests when dropped.
 service_image_ref() {
-  local svc="$1"
-  compose config --images "$svc" 2>/dev/null | head -1
+  local svc="$1" ref=""
+  ref="$(compose config --format json 2>/dev/null | python3 -c \
+    'import json,sys; d=json.load(sys.stdin); print((d.get("services") or {}).get(sys.argv[1], {}).get("image") or "")' \
+    "$svc" 2>/dev/null || true)"
+  if [[ -z "$ref" ]]; then
+    case "$svc:$COMPOSE_PROJECT" in
+      app:agenttracer) ref="agenttracer-app:local" ;;
+      app:at-m2) ref="agenttracer-at-m2:local" ;;
+      app:at-m3) ref="agenttracer-at-m3:local" ;;
+      minio:*) ref="docker.io/pgsty/silo:RELEASE.2026-10-26T00-00-00Z" ;;
+      postgres:*) ref="postgres:16-alpine" ;;
+      *) return 1 ;;
+    esac
+  fi
+  case "$svc" in
+    minio)
+      [[ "$ref" == *"@sha256:"* ]] || ref="${ref}@${EXPECTED_SILO_DIGEST}"
+      ;;
+    postgres)
+      [[ "$ref" == *"@sha256:"* ]] || ref="${ref}@${EXPECTED_POSTGRES_DIGEST}"
+      ;;
+  esac
+  echo "$ref"
 }
 
 service_cid() {
@@ -133,15 +156,15 @@ check_app() {
   img_name="${ref%%@*}"
   img_name="${img_name##*/}"  # rough; also check full
   if echo "$ref" | grep -E "$FORBIDDEN_APP_NAMES_REGEX" >/dev/null 2>&1; then
-    fail "app image ref '$ref' collides with a third-party repository name — set image: agenttracer-app:local"
+    fail "app image ref '$ref' collides with a third-party repository name — use agenttracer-app:local / agenttracer-at-m2:local"
   fi
+  # Allowed: agenttracer-app:local (prod), agenttracer-at-m2:local, agenttracer-at-m3:local
   case "$ref" in
     agenttracer-app:*|agenttracer-app@*|*/agenttracer-app:*|*/agenttracer-app@*) ;;
+    agenttracer-at-m2:*|agenttracer-at-m2@*|*/agenttracer-at-m2:*|*/agenttracer-at-m2@*) ;;
+    agenttracer-at-m3:*|agenttracer-at-m3@*|*/agenttracer-at-m3:*|*/agenttracer-at-m3@*) ;;
     *)
-      # Allow project-prefixed compose defaults only if explicitly agenttracer-app
-      if [[ "$ref" != *"agenttracer-app"* ]]; then
-        fail "app image must be named agenttracer-app:* (got '$ref') so builds cannot retag silo/postgres"
-      fi
+      fail "app image must be agenttracer-app:local or agenttracer-at-m*:local (got '$ref') so builds cannot retag silo/postgres"
       ;;
   esac
 

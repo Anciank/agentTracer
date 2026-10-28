@@ -13,7 +13,7 @@ services:
     mem_limit: 256m
   app:
     container_name: at-m3-app
-    image: agenttracer-app:local
+    image: agenttracer-at-m3:local
     build:
       context: .
       dockerfile: deploy/Dockerfile.prebuilt
