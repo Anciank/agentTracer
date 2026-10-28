@@ -25,7 +25,9 @@ the local silo tag; prod minio later ran the agenttracer binary and crash-looped
 never call `config --images` for retags. Guard: `deploy/check_no_dynamic_image_tags.sh`.
 
 ## Deploy
-- `deploy/deploy.sh`: backup → ff-only pull → `compose pull` pinned images → `preflight.sh` → build → `up -d --no-deps app` → health → `startup_check.sh` → rollback app image on failure.
+- `deploy/deploy.sh`: backup → ff-only pull **or** `--sha <commit>` → `compose pull` pinned images → `preflight.sh` → build → `up -d --no-deps app` → health → `startup_check.sh` → rollback app image on failure.
+  - Default: `git merge --ff-only origin/go-rewrite` (tip). Tip must be the commit you intend — if tip moved past your audited SHA, use `--sha`.
+  - Exact pin: `./deploy/deploy.sh --sha 2371a25` (must be ancestor of / equal to `origin/go-rewrite`).
 - Never `down -v` on prod (`agenttracer` / :1984).
 - Third-party images are digest-pinned in `docker-compose.yml` / `deploy/docker-compose.at-*.yml` (never `:latest`).
 - App image names (never retag silo/postgres):
@@ -113,4 +115,42 @@ export AGENTTRACER_TEST_DATABASE_URL="postgres://agenttracer:agenttracer@<pg-ip>
 # Do NOT export AGENTTRACER_DATABASE_URL for tests.
 go test ./...
 ```
+
+## Image store / rollback protection (b1fee2c4 incident 2026-10-28)
+
+**What happened:** Prod app container was still running digest `b1fee2c4…` while a concurrent
+VPS build (BuildKit export ~08:00–08:09 EDT) retagged `agenttracer-app:local` onto a new id
+(`439f5a…`). That left `b1fee2c4` **dangling**. Later `docker image inspect` / `docker tag`
+of that id failed (`No such image`), and `docker commit` failed with a missing content
+digest — so the image store had dropped blobs while the container still referenced the id.
+`deploy.sh` then aborted at the rollback-pin `docker tag` step.
+
+**Investigation (no culprit script found):**
+- No ubuntu/root crontab; no systemd timer that prunes Docker.
+- No `docker image prune` / `system prune` / `rmi -f` hits in `~/src/**/*.sh|md|py`,
+  ubuntu bash_history, or (via sudo) root history / auth.log around the window.
+- Docker journal shows BuildKit “exporting to image” / naming for app builds, then our
+  recovery `docker import` — not an explicit prune log line.
+- A running container **normally** keeps its image from `docker image prune` (with or
+  without `-a`). So either something did `docker rmi -f` on the dangling id, BuildKit/
+  content-store GC dropped blobs, or an intermediate recreate left a stale Image id.
+  Concurrent **retag of prod `:local` without deploying** is the confirmed first step.
+
+**Hard rules for every bot on this VPS:**
+1. **Never** `docker image prune -a`, `docker system prune -a`, or `docker rmi -f` on
+   `agenttracer-*` / `pgsty/silo` / `postgres` digests.
+2. **Never** `docker compose build` / retag `agenttracer-app:local` on the VPS while prod
+   is running that digest unless you are inside `deploy/deploy.sh` (which pins
+   `:rollback-prev` first).
+3. If you must reclaim disk, use only:
+   ```bash
+   docker image prune -a --filter 'label!=agenttracer.keep=true'
+   ```
+   (and still avoid touching anything a running container needs).
+
+**Protections now in deploy:**
+- `deploy_pin_rollback_image` refuses deploy if `PREV_IMAGE_ID` is missing from the store.
+- Pins `agenttracer-*:rollback-prev` **and** labels it `agenttracer.keep=true` (via a
+  no-op `FROM` rebuild) so label-filter prunes spare it.
+- `slot_check.sh` prints the never-prune / never-retag reminder every time.
 

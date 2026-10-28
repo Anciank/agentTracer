@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Prod-safe deploy for agentTracer.
-# Steps: pre-deploy backup → ff-only pull → pull pinned images → preflight →
+# Steps: pre-deploy backup → ff-only pull (or --sha <commit>) → pull pinned images → preflight →
 #        build → up app [optional one-shot graph-cache backfill] → health →
 #        startup identity check → rollback on failure.
 # NEVER runs `down -v` on prod. Test with AGENTTRACER_COMPOSE_PROJECT=at-m2 and override files on :1985.
@@ -11,6 +11,8 @@ cd "$REPO_ROOT"
 
 # shellcheck source=oom_guards.sh
 source "$REPO_ROOT/deploy/oom_guards.sh"
+# shellcheck source=deploy_helpers.sh
+source "$REPO_ROOT/deploy/deploy_helpers.sh"
 
 COMPOSE_PROJECT="${AGENTTRACER_COMPOSE_PROJECT:-agenttracer}"
 # Space-separated -f args, e.g. "-f docker-compose.yml -f deploy/docker-compose.at-m2.yml"
@@ -28,21 +30,38 @@ SKIP_PREFLIGHT="${AGENTTRACER_SKIP_PREFLIGHT:-0}"
 BACKFILL_GRAPH_CACHE="${AGENTTRACER_DEPLOY_BACKFILL_GRAPH_CACHE:-0}"
 FORCE_WITH_TEST_STACK=0
 CHECK_ONLY=0
+DEPLOY_SHA="${AGENTTRACER_DEPLOY_SHA:-}"
 
-for arg in "$@"; do
-  case "$arg" in
-    --skip-pull) SKIP_PULL=1 ;;
-    --skip-backup) SKIP_BACKUP=1 ;;
-    --skip-preflight) SKIP_PREFLIGHT=1 ;;
-    --backfill-graph-cache) BACKFILL_GRAPH_CACHE=1 ;;
-    --force-with-test-stack) FORCE_WITH_TEST_STACK=1 ;;
-    --check-only|--preflight-only) CHECK_ONLY=1 ;;
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --skip-pull) SKIP_PULL=1; shift ;;
+    --skip-backup) SKIP_BACKUP=1; shift ;;
+    --skip-preflight) SKIP_PREFLIGHT=1; shift ;;
+    --backfill-graph-cache) BACKFILL_GRAPH_CACHE=1; shift ;;
+    --force-with-test-stack) FORCE_WITH_TEST_STACK=1; shift ;;
+    --check-only|--preflight-only) CHECK_ONLY=1; shift ;;
+    --sha)
+      if [[ $# -lt 2 || -z "${2}" || "${2}" == --* ]]; then
+        echo "ERROR: --sha requires a commit hash" >&2
+        exit 2
+      fi
+      DEPLOY_SHA="$2"
+      shift 2
+      ;;
+    --sha=*)
+      DEPLOY_SHA="${1#--sha=}"
+      if [[ -z "$DEPLOY_SHA" ]]; then
+        echo "ERROR: --sha= requires a commit hash" >&2
+        exit 2
+      fi
+      shift
+      ;;
     --allow-down-v) echo "ERROR: --allow-down-v refused; never down -v on deploy" >&2; exit 2 ;;
-    *) echo "unknown arg: $arg" >&2; exit 2 ;;
+    *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
 
-echo "[deploy] project=$COMPOSE_PROJECT branch=$BRANCH health=$HEALTH_URL"
+echo "[deploy] project=$COMPOSE_PROJECT branch=$BRANCH health=$HEALTH_URL sha=${DEPLOY_SHA:-tip}"
 
 # Read-only gate: report test-stack + MemAvailable (+ lock probe). Never backup/build.
 if [[ "$CHECK_ONLY" == "1" ]]; then
@@ -112,10 +131,7 @@ if [[ -z "$PREV_IMAGE_ID" ]]; then
   PREV_IMAGE_ID="$(docker inspect "${COMPOSE_PROJECT}-app-1" -f '{{.Image}}' 2>/dev/null || true)"
 fi
 echo "[deploy] previous app image=${PREV_IMAGE_ID:-none} (cid=${APP_CID:-none})"
-if [[ -n "$PREV_IMAGE_ID" ]]; then
-  docker tag "$PREV_IMAGE_ID" "$ROLLBACK_TAG"
-  echo "[deploy] pinned rollback tag $ROLLBACK_TAG"
-fi
+deploy_pin_rollback_image "${PREV_IMAGE_ID:-}" "$ROLLBACK_TAG"
 
 rollback_app() {
   local reason="$1"
@@ -144,13 +160,15 @@ rollback_app() {
 }
 
 if [[ "$SKIP_PULL" != "1" ]]; then
-  echo "[deploy] ff-only pull origin/$BRANCH"
-  git fetch origin "$BRANCH"
-  cur="$(git rev-parse --abbrev-ref HEAD)"
-  if [[ "$cur" == "$BRANCH" ]]; then
-    git merge --ff-only "origin/$BRANCH"
+  if [[ -n "$DEPLOY_SHA" ]]; then
+    deploy_checkout_sha "$DEPLOY_SHA" "$BRANCH"
   else
-    echo "[deploy] WARN: HEAD is $cur, not $BRANCH; not switching branches (use SKIP_PULL for test stacks)"
+    deploy_ff_pull_branch "$BRANCH"
+  fi
+else
+  if [[ -n "$DEPLOY_SHA" ]]; then
+    echo "ERROR: --sha cannot be combined with --skip-pull" >&2
+    exit 2
   fi
 fi
 
