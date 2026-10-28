@@ -76,12 +76,26 @@ done
 echo "[1985-test] capture pre-restore counts (empty-ish OK)"
 docker exec at-m2-postgres psql -U agenttracer -d agenttracer -c '\dt' || true
 
+echo "[1985-test] stop app before restore so it cannot write during/after dump load"
+compose stop app
+
 echo "[1985-test] restore prod dump"
 AGENTTRACER_DUMP="$DUMP" AGENTTRACER_PG_CONTAINER=at-m2-postgres \
   "$REPO_ROOT/deploy/restore_drill.sh" | tee /tmp/at-ops-restore-counts.txt
 
+# Baseline = counts actually present in the restored dump (authoritative vs prod-at-dump-time)
+PROD_COUNTS_EXPECT="$(docker exec at-m2-postgres psql -U agenttracer -d agenttracer -t -A -c \
+  "SELECT tablename||'='||n FROM (
+     SELECT 'sessions' tablename, count(*)::text n FROM sessions
+     UNION ALL SELECT 'runs', count(*)::text FROM runs
+     UNION ALL SELECT 'feedback', count(*)::text FROM feedback
+     UNION ALL SELECT 'attachments', count(*)::text FROM attachments
+   ) s ORDER BY 1")"
+echo "[1985-test] restored dump baseline counts:"
+echo "$PROD_COUNTS_EXPECT"
+
 echo "[1985-test] force-recreate app so migrations.Up bootstraps schema_migrations on restored DB"
-compose up -d --no-deps --force-recreate --renew-anon-volumes app
+compose up -d --no-deps --force-recreate app
 sleep 3
 for i in $(seq 1 30); do
   curl -fsS "$HEALTH_URL" >/dev/null 2>&1 && break
@@ -114,7 +128,7 @@ COUNTS="$(docker exec at-m2-postgres psql -U agenttracer -d agenttracer -t -A -c
    ) s ORDER BY 1")"
 echo "[1985-test] post-migrate counts:"
 echo "$COUNTS"
-echo "[1985-test] expected prod counts:"
+echo "[1985-test] expected counts (from restored dump / prod-at-dump-time):"
 echo "$PROD_COUNTS_EXPECT"
 if [[ "$(echo "$COUNTS" | tr -d '[:space:]')" != "$(echo "$PROD_COUNTS_EXPECT" | tr -d '[:space:]')" ]]; then
   echo "ERROR: row count mismatch vs prod" >&2
