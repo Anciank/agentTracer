@@ -242,13 +242,14 @@ func (s *Store) UIListTraces(ctx context.Context, opts TraceListOpts) ([]map[str
 	defer rows.Close()
 
 	type root struct {
-		traceID                      uuid.UUID
-		name, project, status, model string
-		start                        time.Time
-		end                          *time.Time
-		err                          *string
-		tok, inTok, outTok           int
-		sessionID                    *uuid.UUID
+		traceID            uuid.UUID
+		name, status, model string
+		project            *string
+		start              *time.Time
+		end                *time.Time
+		err                *string
+		tok, inTok, outTok int
+		sessionID          *uuid.UUID
 	}
 	var roots []root
 	for rows.Next() {
@@ -263,7 +264,9 @@ func (s *Store) UIListTraces(ctx context.Context, opts TraceListOpts) ([]map[str
 	var nextCursor string
 	if len(roots) > opts.Limit {
 		last := roots[opts.Limit-1]
-		nextCursor = EncodeCursor(last.start, last.traceID.String())
+		if last.start != nil {
+			nextCursor = EncodeCursor(*last.start, last.traceID.String())
+		}
 		roots = roots[:opts.Limit]
 	}
 
@@ -273,7 +276,11 @@ func (s *Store) UIListTraces(ctx context.Context, opts TraceListOpts) ([]map[str
 		if err != nil {
 			return nil, "", err
 		}
-		sum := buildUITraceSummary(rr.traceID.String(), rr.project, runs)
+		project := ""
+		if rr.project != nil {
+			project = *rr.project
+		}
+		sum := buildUITraceSummary(rr.traceID.String(), project, runs)
 		if opts.Status != "" && asString(sum["status"]) != opts.Status {
 			continue
 		}
