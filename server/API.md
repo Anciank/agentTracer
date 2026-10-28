@@ -392,9 +392,13 @@ Project Monitor board. `{id}` = session UUID or name (`404` unknown). **Not** an
     "error_count": 0, "error_rate": 0, "p50_ms": 5, "p99_ms": 5, "tokens": null }]
 }
 ```
-- Tokens series: sum of **all runs** in traces whose root `start_time` falls in the bucket.  
-- `by_model`: `run_type=llm`, null/empty model → `"(unknown)"`.  
-- `by_tool`: `run_type=tool` by run `name`; `tokens` null when tools carry no token counts.  
+- Tokens series (`series_tokens`): sum of **llm** child `input_tokens`/`output_tokens`/`total_tokens` for traces whose root `start_time` falls in the bucket (same basis as header `tokens`).  
+- `by_model`: `run_type=llm`, null/empty model → `"(unknown)"`; `tokens` is always `{input,output,total}` (SUMs; sides may be 0).  
+- `by_tool`: `run_type=tool` by run `name`. Token semantics:
+  - `tokens` is **`null`** when `SUM(input_tokens)=SUM(output_tokens)=SUM(total_tokens)=0` (typical tools carry no usage).
+  - Otherwise `{input, output, total}` are the column SUMs (same shape as `Tokens`). If only `total_tokens` was set, `input`/`output` stay `0` and `total` is the sum — **no invented split**. If `total` is 0 but `input+output>0`, `total` is derived as `input+output`.
+  - `by_model` / header / `series_tokens` already use real input/output/total SUMs (not affected by the old by_tool hardcode).
+- There is **no** `series_trace_n` field; use `series_traces[].total` (or sum them) and top-level `trace_count`.
 - `cost` always `null` (M6 reserved). Migration `007_monitor_indexes.sql` is idempotent.
 
 ### Trace list filters (M3.5 + M3.6)
@@ -436,6 +440,7 @@ At ingest (create and PATCH), runs denormalize:
 
 ## Changes
 
+_(2026-10-28)_ Monitor `by_tool` tokens: real SUM(input/output/total); null only when all zero; no invented split when only total is set. Documented vs by_model/series.
 _(2026-10-28)_ Ingest: UTF-8-safe preview + NUL strip; PersistBatch degraded retry + `GET /info` `ingest_stats` (multipart stays 204).
 _(2026-10-28)_ M3.6 Monitor `GET /api/ui/projects/{id}/monitor` + `tool=` on traces; `__other__.rolled_keys`; paths `fail_nodes`/`is_new`/`p95_ms`; edge `error_rate`.
 _(2026-10-28)_ LangGraph denorm columns (`langgraph_node`/`langgraph_step`/`path_fingerprint`) + ingest extraction/fallback; index `(session_id, langgraph_node, start_time)`.

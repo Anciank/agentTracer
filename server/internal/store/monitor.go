@@ -380,11 +380,15 @@ func (s *Store) monitorByModel(ctx context.Context, sessionID uuid.UUID, from, t
 }
 
 func (s *Store) monitorByTool(ctx context.Context, sessionID uuid.UUID, from, to time.Time, limit int) ([]map[string]any, error) {
+	// Same token columns as by_model: SUM input/output/total. Do not invent a
+	// split — if producers only set total_tokens, input/output stay 0.
 	rows, err := s.pool.Query(ctx, `
 		SELECT COALESCE(NULLIF(c.name, ''), '(unknown)') AS tool,
 			COUNT(*)::int AS calls,
 			COUNT(*) FILTER (WHERE c.error IS NOT NULL AND c.error <> '')::int AS errors,
-			COALESCE(SUM(c.total_tokens),0)::bigint AS tok,
+			COALESCE(SUM(c.input_tokens),0)::bigint,
+			COALESCE(SUM(c.output_tokens),0)::bigint,
+			COALESCE(SUM(c.total_tokens),0)::bigint,
 			percentile_cont(0.50) WITHIN GROUP (
 				ORDER BY EXTRACT(EPOCH FROM (c.end_time - c.start_time)) * 1000)
 				FILTER (WHERE c.end_time IS NOT NULL AND c.start_time IS NOT NULL) AS p50,
@@ -402,16 +406,16 @@ func (s *Store) monitorByTool(ctx context.Context, sessionID uuid.UUID, from, to
 	}
 	defer rows.Close()
 	type row struct {
-		tool        string
-		calls, errs int
-		tok         int64
-		p50, p99    *float64
+		tool         string
+		calls, errs  int
+		in, out, tot int64
+		p50, p99     *float64
 	}
 	var list []row
 	var totalCalls int
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&r.tool, &r.calls, &r.errs, &r.tok, &r.p50, &r.p99); err != nil {
+		if err := rows.Scan(&r.tool, &r.calls, &r.errs, &r.in, &r.out, &r.tot, &r.p50, &r.p99); err != nil {
 			return nil, err
 		}
 		totalCalls += r.calls
@@ -434,11 +438,15 @@ func (s *Store) monitorByTool(ctx context.Context, sessionID uuid.UUID, from, to
 		if r.p99 != nil {
 			p99 = int(math.Round(*r.p99))
 		}
+		tot := r.tot
+		if tot == 0 && (r.in > 0 || r.out > 0) {
+			tot = r.in + r.out
+		}
 		var tokens any
-		if r.tok > 0 {
-			tokens = map[string]any{"input": 0, "output": 0, "total": r.tok}
-		} else {
+		if r.in == 0 && r.out == 0 && tot == 0 {
 			tokens = nil
+		} else {
+			tokens = map[string]any{"input": r.in, "output": r.out, "total": tot}
 		}
 		out = append(out, map[string]any{
 			"tool": r.tool, "calls": r.calls, "share": share,
