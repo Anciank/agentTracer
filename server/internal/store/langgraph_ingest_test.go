@@ -23,7 +23,7 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	if err := migrations.Up(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
-	_, _ = pool.Exec(ctx, `TRUNCATE attachments, feedback, runs, sessions CASCADE`)
+	_, _ = pool.Exec(ctx, `TRUNCATE attachments, feedback, runs, sessions, trace_cold, trace_graph_cache CASCADE`)
 	return pool
 }
 

@@ -216,8 +216,14 @@ func (s *Store) UIListTraces(ctx context.Context, opts TraceListOpts) ([]map[str
 		n++
 	}
 	if opts.Q != "" {
+		// name / error / tag / preview stay hot after archive (ProductBro).
 		where = append(where, fmt.Sprintf(
-			`(r.name ILIKE $%d OR EXISTS (SELECT 1 FROM runs x WHERE x.trace_id=r.trace_id AND x.error ILIKE $%d))`, n, n))
+			`(r.name ILIKE $%d OR EXISTS (
+				SELECT 1 FROM runs x WHERE x.trace_id=r.trace_id AND (
+					x.name ILIKE $%d OR x.error ILIKE $%d
+					OR x.inputs_preview ILIKE $%d OR x.outputs_preview ILIKE $%d
+					OR x.tags::text ILIKE $%d
+				)))`, n, n, n, n, n, n))
 		args = append(args, "%"+opts.Q+"%")
 		n++
 	}
@@ -289,7 +295,7 @@ func (s *Store) UIListTraces(ctx context.Context, opts TraceListOpts) ([]map[str
 
 	out := make([]map[string]any, 0, len(roots))
 	for _, rr := range roots {
-		runs, err := s.QueryRuns(ctx, QueryOpts{Trace: rr.traceID.String(), Unlimited: true})
+		runs, err := s.QueryRuns(ctx, QueryOpts{Trace: rr.traceID.String(), Unlimited: true, Skinny: true})
 		if err != nil {
 			return nil, "", err
 		}

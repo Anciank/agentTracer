@@ -115,6 +115,7 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 		// Ingest visibility: PersistBatch still returns 204 (poison retries would
 		// loop), but per-run failures are logged and counted here for bots.
 		"ingest_stats": s.store.IngestStats(),
+		"cold_stats":   s.store.ColdStats(),
 	})
 }
 
@@ -512,7 +513,7 @@ func (s *Server) uiTraces(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, []any{})
 		return
 	}
-	runs, err := s.store.QueryRuns(r.Context(), store.QueryOpts{Traces: traceIDs, Unlimited: true})
+	runs, err := s.store.QueryRuns(r.Context(), store.QueryOpts{Traces: traceIDs, Unlimited: true, Skinny: true})
 	if err != nil {
 		writeJSON(w, 500, map[string]any{"detail": err.Error()})
 		return

@@ -32,6 +32,9 @@ type Store struct {
 	persistErrors         atomic.Uint64
 	degradedRetriesOK     atomic.Uint64
 	degradedRetriesFailed atomic.Uint64
+
+	cold         coldStats
+	hydrateCache *hydrateCache
 }
 
 // UpsertRunTestHook, when set, is invoked at the start of UpsertRun. Tests use it
@@ -55,7 +58,7 @@ func (s *Store) ResetIngestStatsForTest() {
 }
 
 func New(pool *pgxpool.Pool, blob BlobStore) *Store {
-	return &Store{pool: pool, blob: blob, hub: live.NewHub()}
+	return &Store{pool: pool, blob: blob, hub: live.NewHub(), hydrateCache: newHydrateCache(64)}
 }
 
 func (s *Store) Hub() *live.Hub { return s.hub }
@@ -390,6 +393,17 @@ func (s *Store) UpsertRun(ctx context.Context, payload map[string]any, op string
 		sessionID = &id
 	}
 
+	// M4: if this run (or its trace) is cold, re-hot before reading heavy cols for merge.
+	if tid, _ := s.lookupRunTraceID(ctx, *runID); tid != "" {
+		if err := s.maybeRehotForWrite(ctx, tid); err != nil {
+			return err
+		}
+	} else if tid := coldTraceHint(payload); tid != "" {
+		if err := s.maybeRehotForWrite(ctx, tid); err != nil {
+			return err
+		}
+	}
+
 	existing, _ := s.getRunRaw(ctx, *runID)
 
 	merged := map[string]any{}
@@ -585,6 +599,16 @@ func (s *Store) getRunRaw(ctx context.Context, id uuid.UUID) (map[string]any, er
 	return s.GetRun(ctx, id.String())
 }
 
+// lookupRunTraceID is a light (no hydrate) trace_id lookup for the cold rehot gate.
+func (s *Store) lookupRunTraceID(ctx context.Context, id uuid.UUID) (string, error) {
+	var tid *uuid.UUID
+	err := s.pool.QueryRow(ctx, `SELECT trace_id FROM runs WHERE id=$1`, id).Scan(&tid)
+	if err != nil || tid == nil {
+		return "", err
+	}
+	return tid.String(), nil
+}
+
 func (s *Store) GetRun(ctx context.Context, id string) (map[string]any, error) {
 	uid, err := uuid.Parse(id)
 	if err != nil {
@@ -597,7 +621,14 @@ func (s *Store) GetRun(ctx context.Context, id string) (map[string]any, error) {
 			input_tokens, output_tokens, total_tokens, model,
 			langgraph_node, langgraph_step, path_fingerprint
 		FROM runs WHERE id=$1`, uid)
-	return scanRun(row)
+	run, err := scanRun(row)
+	if err != nil || run == nil {
+		return run, err
+	}
+	if err := s.HydrateRun(ctx, run); err != nil {
+		return nil, err
+	}
+	return run, nil
 }
 
 type scannable interface {
@@ -751,13 +782,23 @@ func (s *Store) QueryRuns(ctx context.Context, opts QueryOpts) ([]map[string]any
 	if offset < 0 {
 		offset = 0
 	}
-	q := fmt.Sprintf(`SELECT id, name, run_type, session_id, parent_run_id, dotted_order, trace_id,
+	cols := `id, name, run_type, session_id, parent_run_id, dotted_order, trace_id,
 		start_time, end_time, status, error, inputs, outputs, extra, events, tags,
 		serialized, inputs_preview, outputs_preview, reference_example_id,
 		input_tokens, output_tokens, total_tokens, model,
-		langgraph_node, langgraph_step, path_fingerprint
+		langgraph_node, langgraph_step, path_fingerprint`
+	if opts.Skinny {
+		// List/Map/Monitor: keep hot index only — never pull/hydrate heavy JSONB or S3.
+		cols = `id, name, run_type, session_id, parent_run_id, dotted_order, trace_id,
+		start_time, end_time, status, error,
+		NULL::jsonb AS inputs, NULL::jsonb AS outputs, NULL::jsonb AS extra, NULL::jsonb AS events, tags,
+		NULL::jsonb AS serialized, inputs_preview, outputs_preview, reference_example_id,
+		input_tokens, output_tokens, total_tokens, model,
+		langgraph_node, langgraph_step, path_fingerprint`
+	}
+	q := fmt.Sprintf(`SELECT %s
 		FROM runs WHERE %s ORDER BY start_time DESC NULLS LAST LIMIT %d OFFSET %d`,
-		strings.Join(where, " AND "), limit, offset)
+		cols, strings.Join(where, " AND "), limit, offset)
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
@@ -774,7 +815,25 @@ func (s *Store) QueryRuns(ctx context.Context, opts QueryOpts) ([]map[string]any
 	if out == nil {
 		out = []map[string]any{}
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if !opts.Skinny {
+		// Hydrate cold heavy fields for detail/messages (Map/Monitor use Skinny).
+		byTrace := map[string][]map[string]any{}
+		for _, m := range out {
+			tid, _ := m["trace_id"].(string)
+			if tid != "" {
+				byTrace[tid] = append(byTrace[tid], m)
+			}
+		}
+		for _, runs := range byTrace {
+			if err := s.HydrateTraceRuns(ctx, runs); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return out, nil
 }
 
 type QueryOpts struct {
@@ -791,6 +850,8 @@ type QueryOpts struct {
 	Limit      int
 	Offset     int
 	Unlimited  bool
+	// Skinny omits heavy JSONB and skips S3 hydrate (list / Map / Monitor).
+	Skinny bool
 }
 
 func (s *Store) ListTraceIDs(ctx context.Context, sessionIDs []string, limit int) ([]string, error) {

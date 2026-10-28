@@ -19,3 +19,6 @@ services:
     mem_limit: 512m
     environment:
       GOMEMLIMIT: 400MiB
+      # M4: enable cold archiver on the isolated :1985 stack only (prod default remains false).
+      AGENTTRACER_COLD_ENABLED: "true"
+      AGENTTRACER_API_KEY: "test-key-m4-cold-1985"

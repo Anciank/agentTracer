@@ -21,6 +21,11 @@ type Config struct {
 	S3UsePathStyle bool
 	HotRetention   time.Duration
 	ColdRetention  time.Duration
+	// ColdEnabled gates the background archiver. Default false; at-m2 test override only.
+	ColdEnabled bool
+	// ColdArchiveInterval / Batch size for the ticker (defaults 1h / 50).
+	ColdArchiveInterval time.Duration
+	ColdArchiveBatch    int
 }
 
 func Load() (Config, error) {
@@ -43,8 +48,11 @@ func Load() (Config, error) {
 		S3AccessKey:    env("AGENTTRACER_S3_ACCESS_KEY", "minioadmin"),
 		S3SecretKey:    env("AGENTTRACER_S3_SECRET_KEY", "minioadmin"),
 		S3UsePathStyle: envBool("AGENTTRACER_S3_PATH_STYLE", true),
-		HotRetention:   envDurationDays("AGENTTRACER_HOT_RETENTION_DAYS", 14),
-		ColdRetention:  envDurationDays("AGENTTRACER_COLD_RETENTION_DAYS", 180),
+		HotRetention:        envDurationDays("AGENTTRACER_HOT_RETENTION_DAYS", 14),
+		ColdRetention:       envDurationDays("AGENTTRACER_COLD_RETENTION_DAYS", 180),
+		ColdEnabled:         envBool("AGENTTRACER_COLD_ENABLED", false),
+		ColdArchiveInterval: envDuration("AGENTTRACER_COLD_ARCHIVE_INTERVAL", time.Hour),
+		ColdArchiveBatch:    envInt("AGENTTRACER_COLD_ARCHIVE_BATCH", 50),
 	}
 	if cfg.APIKey == "" {
 		return cfg, fmt.Errorf("AGENTTRACER_API_KEY is required")
@@ -81,6 +89,31 @@ func envDurationDays(k string, defDays int) time.Duration {
 		return time.Duration(defDays) * 24 * time.Hour
 	}
 	return time.Duration(n) * 24 * time.Hour
+}
+
+
+func envDuration(k string, def time.Duration) time.Duration {
+	v := os.Getenv(k)
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return def
+	}
+	return d
+}
+
+func envInt(k string, def int) int {
+	v := os.Getenv(k)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return def
+	}
+	return n
 }
 
 func splitCSV(s string) []string {
