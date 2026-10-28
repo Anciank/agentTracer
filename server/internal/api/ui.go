@@ -382,6 +382,8 @@ func (s *Server) apiUIRun(w http.ResponseWriter, r *http.Request) {
 	if tags == nil {
 		tags = []any{}
 	}
+	// Fill-null token/model rollup from LLM descendants (same QueryRuns slice).
+	inTok, outTok, totTok, model := fillNullLLMRollup(run, runs)
 	out := map[string]any{
 		"id": run["id"], "parent_run_id": run["parent_run_id"], "trace_id": run["trace_id"],
 		"session_id": run["session_id"], "name": run["name"], "run_type": run["run_type"],
@@ -389,10 +391,10 @@ func (s *Server) apiUIRun(w http.ResponseWriter, r *http.Request) {
 		"start_time": run["start_time"], "end_time": run["end_time"],
 		"latency_ms": lat, "self_time_ms": selfAny,
 		"tokens": map[string]any{
-			"input": asIntAny(run["input_tokens"]), "output": asIntAny(run["output_tokens"]),
-			"total": asIntAny(run["total_tokens"]),
+			"input": inTok, "output": outTok,
+			"total": totTok,
 		},
-		"model": run["model"], "tags": tags, "dotted_order": run["dotted_order"],
+		"model": model, "tags": tags, "dotted_order": run["dotted_order"],
 		"path_fingerprint": run["path_fingerprint"],
 		"inputs":           maybe(run["inputs"]), "outputs": maybe(run["outputs"]),
 		"extra": maybe(run["extra"]), "events": maybe(run["events"]),
