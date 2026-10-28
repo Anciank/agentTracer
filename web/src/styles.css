@@ -268,19 +268,22 @@ a { color: var(--accent-ink); }
   opacity: 0.55;
 }
 .tmodel {
-  display: inline;
-  max-width: 9em;
+  display: inline-block;
+  max-width: 12em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: baseline;
   font-family: var(--mono);
   font-size: 10.5px;
   padding: 1px 5px;
   border-radius: 4px;
   background: var(--chip);
   color: var(--muted);
-  /* keep chip on the meta line without growing row height */
-  box-decoration-break: clone;
-  -webkit-box-decoration-break: clone;
+  line-height: 1.35;
 }
 .trow .tmodel { max-width: 9em; }
+.pane-head .tmodel { max-width: min(16em, 45%); }
 .trow .terr {
   flex: none;
   font-size: 10.5px;
