@@ -259,7 +259,8 @@ func (s *Store) UIListTraces(ctx context.Context, opts TraceListOpts) ([]map[str
 
 	q := fmt.Sprintf(`
 		SELECT r.trace_id, r.name, s.name, r.start_time, r.end_time, r.status, r.error,
-			r.total_tokens, r.input_tokens, r.output_tokens, r.model, r.session_id
+			r.total_tokens, r.input_tokens, r.output_tokens, r.model, r.session_id,
+			r.first_user_preview, r.last_ai_preview
 		FROM runs r
 		LEFT JOIN sessions s ON s.id = r.session_id
 		WHERE %s
@@ -280,12 +281,13 @@ func (s *Store) UIListTraces(ctx context.Context, opts TraceListOpts) ([]map[str
 		err                 *string
 		tok, inTok, outTok  int
 		sessionID           *uuid.UUID
+		firstUser, lastAI   string
 	}
 	var roots []root
 	for rows.Next() {
 		var rr root
 		if err := rows.Scan(&rr.traceID, &rr.name, &rr.project, &rr.start, &rr.end, &rr.status, &rr.err,
-			&rr.tok, &rr.inTok, &rr.outTok, &rr.model, &rr.sessionID); err != nil {
+			&rr.tok, &rr.inTok, &rr.outTok, &rr.model, &rr.sessionID, &rr.firstUser, &rr.lastAI); err != nil {
 			return nil, "", err
 		}
 		roots = append(roots, rr)
@@ -311,6 +313,26 @@ func (s *Store) UIListTraces(ctx context.Context, opts TraceListOpts) ([]map[str
 			project = *rr.project
 		}
 		sum := buildUITraceSummary(rr.traceID.String(), project, runs)
+		fu, la := rr.firstUser, rr.lastAI
+		if fu == "" || la == "" {
+			f2, l2 := pickTraceChatPreviews(runs)
+			if fu == "" {
+				fu = f2
+			}
+			if la == "" {
+				la = l2
+			}
+		}
+		if fu != "" {
+			sum["first_user_preview"] = fu
+		} else {
+			sum["first_user_preview"] = nil
+		}
+		if la != "" {
+			sum["last_ai_preview"] = la
+		} else {
+			sum["last_ai_preview"] = nil
+		}
 		if opts.Status != "" && asString(sum["status"]) != opts.Status {
 			continue
 		}

@@ -494,15 +494,18 @@ func (s *Store) UpsertRun(ctx context.Context, payload map[string]any, op string
 	merged["serialized"] = textsafe.Sanitize(merged["serialized"])
 	merged["tags"] = textsafe.Sanitize(merged["tags"])
 
+	firstUserPrev, lastAIPrev := chatPreviewsFromIO(merged["inputs"], merged["outputs"])
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO runs (
 			id, name, run_type, session_id, parent_run_id, dotted_order, trace_id,
 			start_time, end_time, status, error, inputs, outputs, extra, events, tags,
 			serialized, inputs_preview, outputs_preview, reference_example_id,
 			input_tokens, output_tokens, total_tokens, model,
-			langgraph_node, langgraph_step, created_at, updated_at
+			langgraph_node, langgraph_step,
+			first_user_preview, last_ai_preview,
+			created_at, updated_at
 		) VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,now(),now()
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,now(),now()
 		)
 		ON CONFLICT (id) DO UPDATE SET
 			name=EXCLUDED.name,
@@ -534,6 +537,8 @@ func (s *Store) UpsertRun(ctx context.Context, payload map[string]any, op string
 			model=CASE WHEN EXCLUDED.model='' THEN runs.model ELSE EXCLUDED.model END,
 			langgraph_node=COALESCE(EXCLUDED.langgraph_node, runs.langgraph_node),
 			langgraph_step=COALESCE(EXCLUDED.langgraph_step, runs.langgraph_step),
+			first_user_preview=CASE WHEN EXCLUDED.first_user_preview='' THEN runs.first_user_preview ELSE EXCLUDED.first_user_preview END,
+			last_ai_preview=CASE WHEN EXCLUDED.last_ai_preview='' THEN runs.last_ai_preview ELSE EXCLUDED.last_ai_preview END,
 			updated_at=now()`,
 		*runID, name, runType, sessionID, parentID, dotted, traceID,
 		start, end, status, errorStr,
@@ -542,9 +547,13 @@ func (s *Store) UpsertRun(ctx context.Context, payload map[string]any, op string
 		preview(merged["inputs"], 200), preview(merged["outputs"], 200), refID,
 		inTok, outTok, totTok, modelName,
 		lgNode, lgStep,
+		firstUserPrev, lastAIPrev,
 	)
 	if err != nil {
 		return err
+	}
+	if traceID != nil {
+		s.bumpRootChatPreviews(ctx, *traceID, firstUserPrev, lastAIPrev)
 	}
 	s.publishRun(ctx, *runID, op)
 	// M3.5: refresh path_fingerprint when root is finished (incl. late child PATCHes).
@@ -595,7 +604,8 @@ func (s *Store) GetRun(ctx context.Context, id string) (map[string]any, error) {
 			start_time, end_time, status, error, inputs, outputs, extra, events, tags,
 			serialized, inputs_preview, outputs_preview, reference_example_id,
 			input_tokens, output_tokens, total_tokens, model,
-			langgraph_node, langgraph_step, path_fingerprint
+			langgraph_node, langgraph_step, path_fingerprint,
+			first_user_preview, last_ai_preview
 		FROM runs WHERE id=$1`, uid)
 	return scanRun(row)
 }
@@ -609,6 +619,7 @@ func scanRun(row scannable) (map[string]any, error) {
 		id                                    uuid.UUID
 		name, runType, dotted, status, errStr string
 		inPrev, outPrev, model                string
+		firstUserPrev, lastAIPrev             string
 		sessionID, parentID, traceID, refID   *uuid.UUID
 		start, end                            *time.Time
 		inputs, outputs, extra, events, tags  []byte
@@ -621,13 +632,14 @@ func scanRun(row scannable) (map[string]any, error) {
 	if err := row.Scan(&id, &name, &runType, &sessionID, &parentID, &dotted, &traceID,
 		&start, &end, &status, &errStr, &inputs, &outputs, &extra, &events, &tags,
 		&serialized, &inPrev, &outPrev, &refID, &inTok, &outTok, &totTok, &model,
-		&lgNode, &lgStep, &pathFP); err != nil {
+		&lgNode, &lgStep, &pathFP, &firstUserPrev, &lastAIPrev); err != nil {
 		return nil, err
 	}
 	out := map[string]any{
 		"id": id.String(), "name": name, "run_type": runType,
 		"dotted_order": dotted, "status": status, "error": nilIfEmpty(errStr),
 		"inputs_preview": inPrev, "outputs_preview": outPrev,
+		"first_user_preview": firstUserPrev, "last_ai_preview": lastAIPrev,
 		"input_tokens": inTok, "output_tokens": outTok, "total_tokens": totTok,
 		"model": nilIfEmpty(model),
 	}
@@ -755,7 +767,8 @@ func (s *Store) QueryRuns(ctx context.Context, opts QueryOpts) ([]map[string]any
 		start_time, end_time, status, error, inputs, outputs, extra, events, tags,
 		serialized, inputs_preview, outputs_preview, reference_example_id,
 		input_tokens, output_tokens, total_tokens, model,
-		langgraph_node, langgraph_step, path_fingerprint
+		langgraph_node, langgraph_step, path_fingerprint,
+		first_user_preview, last_ai_preview
 		FROM runs WHERE %s ORDER BY start_time DESC NULLS LAST LIMIT %d OFFSET %d`,
 		strings.Join(where, " AND "), limit, offset)
 	rows, err := s.pool.Query(ctx, q, args...)
@@ -987,4 +1000,25 @@ func sanitizeRunPayload(p map[string]any) map[string]any {
 		}
 	}
 	return out
+}
+
+// bumpRootChatPreviews denormalizes chat previews onto the trace root so list
+// rows can read them without scanning child JSON payloads.
+func (s *Store) bumpRootChatPreviews(ctx context.Context, traceID uuid.UUID, firstUser, lastAI string) {
+	if firstUser == "" && lastAI == "" {
+		return
+	}
+	_, _ = s.pool.Exec(ctx, `
+		UPDATE runs SET
+			first_user_preview = CASE
+				WHEN $2 <> '' AND first_user_preview = '' THEN $2
+				ELSE first_user_preview
+			END,
+			last_ai_preview = CASE
+				WHEN $3 <> '' THEN $3
+				ELSE last_ai_preview
+			END,
+			updated_at = now()
+		WHERE trace_id = $1 AND parent_run_id IS NULL`,
+		traceID, firstUser, lastAI)
 }

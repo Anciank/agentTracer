@@ -41,7 +41,9 @@ Integers ≥ 0. Missing sides are `0`, not null.
   "status": "error",
   "tokens": { "input": 6000, "output": 1152, "total": 7152 },
   "model": "gpt-4o-mini",
-  "run_types": { "chain": 12, "llm": 8, "tool": 13 }
+  "run_types": { "chain": 12, "llm": 8, "tool": 13 },
+  "first_user_preview": "How do I reset my password?",
+  "last_ai_preview": "Sure — open Settings → Security → Reset password…"
 }
 ```
 - `status`: `"success"` | `"error"` | `"running"` | `"stale"` — derived: any error → `error`; else any running → `running`; else any stale → `stale`; else `success`.
@@ -50,6 +52,7 @@ Integers ≥ 0. Missing sides are `0`, not null.
 - `duration_ms`: root span wall time (`end - start`); `null` if `end` is null.
 - `model`: most-frequent non-empty model among LLM runs in the trace; ties → lexicographically first; `null` if none.
 - `run_types`: counts by `run_type` string; empty object if none.
+- `first_user_preview` / `last_ai_preview`: `string` or `null`. First user/human and last AI/assistant message text from the trace, truncated to ≤120 UTF-8 bytes via `textsafe`. Filled at ingest into `runs.first_user_preview` / `runs.last_ai_preview` (root denormalized); list falls back to scanning loaded run payloads when empty.
 - **No `cost_usd`.**
 
 ### `SpanSummary` (waterfall row — no payloads)
@@ -485,3 +488,4 @@ Counters are exposed on LangSmith-compat **`GET /info`** as:
 `POST /runs/batch` still returns `202` with `{written, errors}` (unchanged). Previews and JSON responses truncate with a shared UTF-8-safe helper; NULs (`\u0000`) are stripped from text/jsonb-bound fields before Postgres write.
 
 ---
+- **list chat previews:** TraceSummary gains `first_user_preview` and `last_ai_preview` (`string|null`, ≤120 UTF-8 bytes).
