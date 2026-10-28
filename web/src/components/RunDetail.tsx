@@ -1,18 +1,91 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { getMessages, getRun } from "../api/client";
-import type { SpanSummary } from "../api/types";
+import type { MessagesResponse, RunDetail as RunDetailT, SpanSummary } from "../api/types";
 import { fmtDurMs, fmtInt, fmtBytes } from "../lib/format";
 import { JsonTree } from "./JsonTree";
 import { MessagesView } from "./Messages";
 
-const TABS = ["Messages", "Inputs", "Outputs", "Metadata", "Error", "Attachments", "Raw"] as const;
+const TABS = [
+  "Overview",
+  "Messages",
+  "Inputs",
+  "Outputs",
+  "Metadata",
+  "Error",
+  "Attachments",
+  "Raw",
+] as const;
 
 type Props = {
   span: SpanSummary | null;
   tabIndex?: number;
   onTab?: (i: number) => void;
 };
+
+function OverviewPanel({
+  run,
+  msgLoading,
+  msgData,
+  onLoadFull,
+}: {
+  run: RunDetailT | undefined;
+  msgLoading: boolean;
+  msgData: MessagesResponse | undefined;
+  onLoadFull: () => void;
+}) {
+  const errText =
+    run?.error == null
+      ? null
+      : typeof run.error === "string"
+        ? run.error
+        : JSON.stringify(run.error, null, 2);
+
+  return (
+    <div className="overview-scroll">
+      {run?.truncated && (
+        <div className="banner">
+          Some fields truncated ({fmtBytes(2 * 1024 * 1024)}+).
+          <button type="button" className="btn" onClick={onLoadFull}>
+            Load full
+          </button>
+        </div>
+      )}
+
+      <section className="ov-sec">
+        <h3>Input</h3>
+        {run ? <JsonTree value={run.inputs} onRequestFull={onLoadFull} /> : <div className="hint">…</div>}
+      </section>
+
+      <section className="ov-sec">
+        <h3>Output</h3>
+        {msgLoading ? (
+          <div className="hint">Loading messages…</div>
+        ) : msgData && msgData.messages.length ? (
+          <MessagesView data={msgData} />
+        ) : run ? (
+          <>
+            <div className="hint">No chat messages — outputs JSON.</div>
+            <JsonTree value={run.outputs} onRequestFull={onLoadFull} />
+          </>
+        ) : (
+          <div className="hint">…</div>
+        )}
+      </section>
+
+      <section className="ov-sec">
+        <h3>Error</h3>
+        {errText ? (
+          <div className="banner error" style={{ whiteSpace: "pre-wrap" }}>
+            {errText}
+          </div>
+        ) : (
+          <div className="hint">No error</div>
+        )}
+      </section>
+    </div>
+  );
+}
 
 export function RunDetail({ span, tabIndex = 0, onTab }: Props) {
   const [full, setFull] = useState(false);
@@ -23,10 +96,11 @@ export function RunDetail({ span, tabIndex = 0, onTab }: Props) {
     queryFn: () => getRun(span!.id, full),
     enabled: !!span,
   });
+  const wantMsgs = !!span && (tab === "Overview" || tab === "Messages");
   const msgQ = useQuery({
     queryKey: ["messages", span?.id],
     queryFn: () => getMessages(span!.id),
-    enabled: !!span && tab === "Messages",
+    enabled: wantMsgs,
   });
 
   if (!span) {
@@ -50,6 +124,7 @@ export function RunDetail({ span, tabIndex = 0, onTab }: Props) {
   }
 
   const run = runQ.data;
+  const loadFull = () => setFull(true);
 
   return (
     <div className="detail">
@@ -91,34 +166,42 @@ export function RunDetail({ span, tabIndex = 0, onTab }: Props) {
 
         {runQ.isLoading && <div className="hint">hydrating…</div>}
         {run?.cold && <div className="banner">Cold payload hydrated from object store.</div>}
-        {run?.truncated && (
+        {tab !== "Overview" && run?.truncated && (
           <div className="banner">
             Some fields truncated ({fmtBytes(2 * 1024 * 1024)}+).
-            <button type="button" className="btn" onClick={() => setFull(true)}>
+            <button type="button" className="btn" onClick={loadFull}>
               Load full
             </button>
           </div>
         )}
 
-        {tab === "Messages" && (
-          msgQ.isLoading ? <div className="hint">Loading messages…</div> :
-          msgQ.data && msgQ.data.messages.length ? (
+        {tab === "Overview" && (
+          <OverviewPanel
+            run={run}
+            msgLoading={msgQ.isLoading}
+            msgData={msgQ.data}
+            onLoadFull={loadFull}
+          />
+        )}
+        {tab === "Messages" &&
+          (msgQ.isLoading ? (
+            <div className="hint">Loading messages…</div>
+          ) : msgQ.data && msgQ.data.messages.length ? (
             <MessagesView data={msgQ.data} />
           ) : run ? (
             <div>
               <div className="hint">No chat messages (empty /messages) — JSON tree fallback.</div>
               <h3 style={{ fontSize: 12, margin: "8px 0 4px" }}>inputs</h3>
-              <JsonTree value={run.inputs} />
+              <JsonTree value={run.inputs} onRequestFull={loadFull} />
               <h3 style={{ fontSize: 12, margin: "12px 0 4px" }}>outputs</h3>
-              <JsonTree value={run.outputs} />
+              <JsonTree value={run.outputs} onRequestFull={loadFull} />
             </div>
           ) : msgQ.data ? (
             <MessagesView data={msgQ.data} />
-          ) : null
-        )}
-        {tab === "Inputs" && run && <JsonTree value={run.inputs} />}
-        {tab === "Outputs" && run && <JsonTree value={run.outputs} />}
-        {tab === "Metadata" && run && <JsonTree value={run.extra} />}
+          ) : null)}
+        {tab === "Inputs" && run && <JsonTree value={run.inputs} onRequestFull={loadFull} />}
+        {tab === "Outputs" && run && <JsonTree value={run.outputs} onRequestFull={loadFull} />}
+        {tab === "Metadata" && run && <JsonTree value={run.extra} onRequestFull={loadFull} />}
         {tab === "Error" && (
           <div className="banner error" style={{ whiteSpace: "pre-wrap" }}>
             {typeof run?.error === "string" ? run.error : run?.error ? JSON.stringify(run.error) : "No error"}
@@ -139,7 +222,7 @@ export function RunDetail({ span, tabIndex = 0, onTab }: Props) {
             ))}
           </div>
         )}
-        {tab === "Raw" && run && <JsonTree value={run} />}
+        {tab === "Raw" && run && <JsonTree value={run} onRequestFull={loadFull} />}
       </div>
     </div>
   );
