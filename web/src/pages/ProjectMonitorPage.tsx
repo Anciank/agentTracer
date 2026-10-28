@@ -231,7 +231,7 @@ export default function ProjectMonitorPage({ projectId, window: win }: Props) {
             </button>
             <span className="muted"> failed</span>
           </div>
-          <div className="mon-stat-label">{fmtInt(data.trace_count)} traces · {data.bucket} buckets</div>
+          <div className="mon-stat-label">{fmtInt(data.trace_count)} traces · {data.window} window · {data.bucket} buckets</div>
         </div>
         <div className="mon-stat">
           <div className="mon-stat-val">
@@ -239,7 +239,7 @@ export default function ProjectMonitorPage({ projectId, window: win }: Props) {
             <span className="dotsep">·</span>
             p99 <b>{fmtDurMs(data.p99_ms)}</b>
           </div>
-          <div className="mon-stat-label">latency</div>
+          <div className="mon-stat-label">latency · p50 / p99</div>
         </div>
         <div className="mon-stat">
           <div className="mon-stat-val">
@@ -249,10 +249,6 @@ export default function ProjectMonitorPage({ projectId, window: win }: Props) {
           <div className="mon-stat-label">
             in {fmtInt(data.tokens.input)} · out {fmtInt(data.tokens.output)}
           </div>
-        </div>
-        <div className="mon-stat mon-cost-slot" title="Reserved for M6">
-          <div className="mon-stat-val muted">—</div>
-          <div className="mon-stat-label">Cost (M6)</div>
         </div>
       </div>
 
@@ -305,9 +301,6 @@ export default function ProjectMonitorPage({ projectId, window: win }: Props) {
             <div className="mon-legend">
               <span className="lg in" /> in
               <span className="lg out" /> out
-              <span className="mon-cost-pill" title="Reserved — no cost fields in M3.6">
-                Cost (M6)
-              </span>
             </div>
           </div>
           <TokensChart

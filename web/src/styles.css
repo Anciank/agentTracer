@@ -546,7 +546,7 @@ a { color: var(--accent-ink); }
 .map-embedded { min-height: 0; }
 .mon-board { display: flex; flex-direction: column; gap: 12px; overflow: auto; min-height: 0; flex: 1; }
 .mon-header {
-  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;
 }
 @media (max-width: 900px) {
   .mon-header { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -632,3 +632,35 @@ a { color: var(--accent-ink); }
 .dotsep { margin: 0 6px; color: var(--muted); }
 .muted { color: var(--muted); }
 .mono { font-family: var(--mono); font-size: 11.5px; }
+
+
+/* Detail Overview: single scrollable Input / Output / Error */
+.overview-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+  min-height: 0;
+  padding-bottom: 16px;
+}
+.ov-sec h3 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.ov-sec { min-width: 0; }
+
+/* Reserved for CodeBro2 first-user / last-reply preview — keep TRACE_ROW_H=52.
+   When filled: put text in .tpreview inside .tbody; keep single-line ellipsis. */
+.trow .tpreview {
+  display: none; /* empty until preview lands; do not raise row height yet */
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}

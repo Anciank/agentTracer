@@ -43,7 +43,7 @@ onClick={() => nav(`/projects/${encodeURIComponent(p.name)}?window=24h`)}
                 <b>{fmtInt(p.trace_count_24h)}</b> traces / 24h · <b>{fmtInt(p.trace_count_7d)}</b> / 7d
               </div>
               <div>
-                errors <b>{fmtPct(p.error_rate_24h)}</b> · p50 <b>{fmtDurMs(p.p50_ms)}</b> · p95{" "}
+                errors <b>{fmtPct(p.error_rate_24h)}</b> · latency p50 <b>{fmtDurMs(p.p50_ms)}</b> · p95{" "}
                 <b>{fmtDurMs(p.p95_ms)}</b>
               </div>
               <div>
