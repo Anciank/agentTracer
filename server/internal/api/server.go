@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/Anciank/agentTracer/server/internal/auth"
 	"github.com/Anciank/agentTracer/server/internal/config"
@@ -119,6 +120,11 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) root(w http.ResponseWriter, r *http.Request) {
+	// Browsers navigating to / get the SPA; API clients keep the JSON probe.
+	if strings.Contains(r.Header.Get("Accept"), "text/html") {
+		http.Redirect(w, r, "/ui", http.StatusFound)
+		return
+	}
 	writeJSON(w, 200, map[string]any{"service": "agenttracer", "version": ServerVersion})
 }
 
