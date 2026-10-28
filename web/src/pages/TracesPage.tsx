@@ -14,7 +14,7 @@ import {
 } from "../lib/filters";
 import { fmtDurMs, fmtInt } from "../lib/format";
 import { ErrorState } from "../components/ErrorState";
-import { indexTree, visibleRows } from "../lib/tree";
+import { buildWaterfallRows, indexTree, isOrphanGroupId, visibleRows } from "../lib/tree";
 
 export function TracesPage() {
   const { traceId: routeTraceId } = useParams();
@@ -72,7 +72,10 @@ export function TracesPage() {
     refetchOnMount: false,
   });
 
-  const rows = summaryQ.data?.rows || [];
+  const rows = useMemo(
+    () => buildWaterfallRows(summaryQ.data?.rows || []),
+    [summaryQ.data?.rows]
+  );
   const tree = useMemo(() => indexTree(rows), [rows]);
   const visible = useMemo(() => visibleRows(rows, folded, tree), [rows, folded, tree]);
 
@@ -92,7 +95,7 @@ export function TracesPage() {
     }
   }, [deepTrace, runId, folded, loc.pathname, loc.search, loc.hash]);
 
-  const selectedSpan = rows.find((r) => r.id === runId) || null;
+  const selectedSpan = (runId && !isOrphanGroupId(runId) ? rows.find((r) => r.id === runId) : null) || null;
 
   const toggleFold = (id: string) => {
     setFolded((prev) => {
@@ -113,18 +116,27 @@ export function TracesPage() {
       if (e.key === "j" || e.key === "ArrowDown") {
         e.preventDefault();
         if (deepTrace && visible.length) {
-          const idx = Math.max(0, visible.findIndex((r) => r.id === runId));
-          const next = visible[Math.min(visible.length - 1, (runId ? idx : -1) + 1)];
-          if (next) setRunId(next.id);
+          let idx = runId ? visible.findIndex((r) => r.id === runId) : -1;
+          for (let i = idx + 1; i < visible.length; i++) {
+            if (!isOrphanGroupId(visible[i].id)) {
+              setRunId(visible[i].id);
+              break;
+            }
+          }
         }
         return;
       }
       if (e.key === "k" || e.key === "ArrowUp") {
         e.preventDefault();
         if (deepTrace && visible.length) {
-          const idx = Math.max(0, visible.findIndex((r) => r.id === runId));
-          const next = visible[Math.max(0, (runId ? idx : 0) - 1)];
-          if (next) setRunId(next.id);
+          let idx = runId ? visible.findIndex((r) => r.id === runId) : 0;
+          if (idx < 0) idx = 0;
+          for (let i = idx - 1; i >= 0; i--) {
+            if (!isOrphanGroupId(visible[i].id)) {
+              setRunId(visible[i].id);
+              break;
+            }
+          }
         }
         return;
       }

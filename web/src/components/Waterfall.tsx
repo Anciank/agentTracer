@@ -1,7 +1,7 @@
 import { useMemo, useRef, useEffect } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { SpanSummary } from "../api/types";
-import { indexTree, visibleRows, treeGuides } from "../lib/tree";
+import { indexTree, visibleRows, treeGuides, isOrphanGroupId } from "../lib/tree";
 import { fmtDurMs, fmtInt } from "../lib/format";
 
 const TYPE_COLOR: Record<string, string> = {
@@ -87,7 +87,7 @@ export function Waterfall({ rows, spanMs, selectedId, folded, onSelect, onToggle
                 height: 28,
                 transform: `translateY(${vi.start}px)`,
               }}
-              onClick={() => onSelect(r.id)}
+              onClick={() => { if (!isOrphanGroupId(r.id)) onSelect(r.id); }}
             >
               <div className="label" title={r.name}>
                 <span className="tree">

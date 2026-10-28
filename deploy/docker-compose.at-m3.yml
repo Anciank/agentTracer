@@ -1,4 +1,6 @@
 # Override for isolated M3 smoke on port 1985.
+# Host ports: ONLY 1985→app:1984 (!override). postgres/minio stay internal (no host publish).
+# Never bind 1984 or any other host port from this override.
 # Usage: docker compose -p at-m3 -f docker-compose.yml -f deploy/docker-compose.at-m3.yml up -d --build
 # Tear down: docker compose -p at-m3 -f docker-compose.yml -f deploy/docker-compose.at-m3.yml down -v
 services:
