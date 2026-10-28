@@ -180,11 +180,22 @@ func TestUIMonitorAndToolFilter(t *testing.T) {
 		t.Fatalf("series_traces %T len %v", out["series_traces"], len(stSeries))
 	}
 	sum := 0
+	empty := 0
 	for _, b := range stSeries {
-		sum += b["total"].(int)
+		total := b["total"].(int)
+		sum += total
+		if total == 0 {
+			empty++
+			if b["success"].(int) != 0 || b["error"].(int) != 0 {
+				t.Fatalf("zero-fill bucket not zero: %v", b)
+			}
+		}
 	}
 	if sum != 2 {
 		t.Fatalf("series total sum %d", sum)
+	}
+	if empty != 22 {
+		t.Fatalf("want 22 zero-filled buckets, got %d", empty)
 	}
 	models, _ := out["by_model"].([]map[string]any)
 	if len(models) < 2 {
