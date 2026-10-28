@@ -16,6 +16,8 @@ import { traceOpenPath } from "../lib/traceNav";
 import { fmtDurMs, fmtInt } from "../lib/format";
 import { statusTitle } from "../lib/status";
 import { ErrorState } from "../components/ErrorState";
+import { isNotFoundError } from "../lib/notFound";
+import { detectLangGraphFlagsFromListItem } from "../lib/langgraphFlags";
 import { buildWaterfallRows, indexTree, isOrphanGroupId, visibleRows } from "../lib/tree";
 
 export function TracesPage() {
@@ -83,6 +85,8 @@ export function TracesPage() {
     enabled: !!deepTrace,
     // Same-key refetch keeps data; do NOT keepPrevious across trace ids (stale pane).
     refetchOnMount: false,
+    // Missing UUID is an empty state — never retry.
+    retry: (n, err) => (isNotFoundError(err) ? false : n < 1),
   });
 
   const rows = useMemo(
@@ -329,6 +333,11 @@ export function TracesPage() {
                     >
                       {summaryQ.data.summary.status}
                     </span>
+                    {detectLangGraphFlagsFromListItem(summaryQ.data.summary).resumed ? (
+                      <span className="badge resumed" title="LangGraph resume (Command resume=…)">
+                        resumed
+                      </span>
+                    ) : null}
                     <span>{fmtDurMs(summaryQ.data.span_ms)}</span>
                     <span>{fmtInt(summaryQ.data.rows.length)} spans</span>
                     <span>{fmtInt(summaryQ.data.summary.tokens.total)} tok</span>
@@ -347,7 +356,21 @@ export function TracesPage() {
               </div>
             </div>
             {summaryQ.isLoading && !summaryQ.data && <div className="empty">Loading waterfall…</div>}
-            {summaryQ.isError && !summaryQ.data && (
+            {summaryQ.isError && !summaryQ.data && isNotFoundError(summaryQ.error) && (
+              <div className="empty-not-found" role="status">
+                <h3>Trace not found</h3>
+                <p className="hint">No trace exists for this id.</p>
+                <div className="nf-id" title={deepTrace}>{deepTrace}</div>
+                <button
+                  type="button"
+                  className="chip"
+                  onClick={() => nav(`/traces${filtersToSearch(filters)}`)}
+                >
+                  Back to traces
+                </button>
+              </div>
+            )}
+            {summaryQ.isError && !summaryQ.data && !isNotFoundError(summaryQ.error) && (
               <ErrorState error={summaryQ.error} onRetry={() => void summaryQ.refetch()} />
             )}
             {summaryQ.data && (
@@ -365,7 +388,7 @@ export function TracesPage() {
 
         {deepTrace && (
           <div className="pane">
-            <RunDetail span={selectedSpan} tabIndex={tab} onTab={setTab} />
+            <RunDetail span={selectedSpan} spans={summaryQ.data?.rows} tabIndex={tab} onTab={setTab} />
           </div>
         )}
 

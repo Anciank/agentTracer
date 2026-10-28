@@ -5,6 +5,8 @@ import type { MessagesResponse, RunDetail as RunDetailT, SpanSummary } from "../
 import { fmtDurMs, fmtInt, fmtBytes } from "../lib/format";
 import { JsonTree } from "./JsonTree";
 import { MessagesView } from "./Messages";
+import { detectLangGraphFlags } from "../lib/langgraphFlags";
+import { isNotFoundError } from "../lib/notFound";
 
 const TABS = [
   "Overview",
@@ -19,6 +21,8 @@ const TABS = [
 
 type Props = {
   span: SpanSummary | null;
+  /** All spans in the current trace — used to pair tool_calls with child tool runs. */
+  spans?: SpanSummary[];
   tabIndex?: number;
   onTab?: (i: number) => void;
 };
@@ -28,11 +32,15 @@ function OverviewPanel({
   msgLoading,
   msgData,
   onLoadFull,
+  runId,
+  spans,
 }: {
   run: RunDetailT | undefined;
   msgLoading: boolean;
   msgData: MessagesResponse | undefined;
   onLoadFull: () => void;
+  runId?: string | null;
+  spans?: SpanSummary[];
 }) {
   const errText =
     run?.error == null
@@ -62,7 +70,7 @@ function OverviewPanel({
         {msgLoading ? (
           <div className="hint">Loading messages…</div>
         ) : msgData && msgData.messages.length ? (
-          <MessagesView data={msgData} />
+          <MessagesView data={msgData} runId={runId} spans={spans} />
         ) : run ? (
           <>
             <div className="hint">No chat messages — outputs JSON.</div>
@@ -87,7 +95,7 @@ function OverviewPanel({
   );
 }
 
-export function RunDetail({ span, tabIndex = 0, onTab }: Props) {
+export function RunDetail({ span, spans, tabIndex = 0, onTab }: Props) {
   const [full, setFull] = useState(false);
   const tab = TABS[Math.min(Math.max(tabIndex, 0), TABS.length - 1)];
 
@@ -95,12 +103,14 @@ export function RunDetail({ span, tabIndex = 0, onTab }: Props) {
     queryKey: ["run", span?.id, full],
     queryFn: () => getRun(span!.id, full),
     enabled: !!span,
+    retry: (n, err) => (isNotFoundError(err) ? false : n < 1),
   });
   const wantMsgs = !!span && (tab === "Overview" || tab === "Messages");
   const msgQ = useQuery({
     queryKey: ["messages", span?.id],
     queryFn: () => getMessages(span!.id),
     enabled: wantMsgs,
+    retry: (n, err) => (isNotFoundError(err) ? false : n < 1),
   });
 
   if (!span) {
@@ -126,6 +136,19 @@ export function RunDetail({ span, tabIndex = 0, onTab }: Props) {
   const run = runQ.data;
   const loadFull = () => setFull(true);
 
+  if (runQ.isError && isNotFoundError(runQ.error)) {
+    return (
+      <div className="detail">
+        <div className="empty-not-found" role="status">
+          <h3>Run not found</h3>
+          <p className="hint">No run exists for this id.</p>
+          <div className="nf-id" title={span.id}>{span.id}</div>
+        </div>
+      </div>
+    );
+  }
+
+
   return (
     <div className="detail">
       <div className="detail-inner">
@@ -133,6 +156,23 @@ export function RunDetail({ span, tabIndex = 0, onTab }: Props) {
           <span className={`badge ${span.status === "error" ? "err" : span.status === "stale" ? "stale" : ""}`} title={span.status === "stale" ? "No end time recorded" : undefined}>{span.status}</span>
           <span className="badge">{span.run_type}</span>
           {span.node && <span className="badge">{span.node}</span>}
+          {(() => {
+            const flags = detectLangGraphFlags({
+              name: span.name,
+              status: span.status,
+              has_error: span.has_error,
+              error: runQ.data?.error,
+              inputs: runQ.data?.inputs,
+              outputs: runQ.data?.outputs,
+              extra: runQ.data?.extra,
+            });
+            return (
+              <>
+                {flags.resumed ? <span className="badge resumed" title="LangGraph Command(resume=…)">resumed</span> : null}
+                {flags.interrupted ? <span className="badge interrupted" title="Ended in GraphInterrupt">interrupted</span> : null}
+              </>
+            );
+          })()}
         </div>
         <h2 style={{ margin: "8px 0 4px", fontSize: 15 }}>{span.name}</h2>
         <div className="kv">
@@ -181,13 +221,15 @@ export function RunDetail({ span, tabIndex = 0, onTab }: Props) {
             msgLoading={msgQ.isLoading}
             msgData={msgQ.data}
             onLoadFull={loadFull}
+            runId={span.id}
+            spans={spans}
           />
         )}
         {tab === "Messages" &&
           (msgQ.isLoading ? (
             <div className="hint">Loading messages…</div>
           ) : msgQ.data && msgQ.data.messages.length ? (
-            <MessagesView data={msgQ.data} />
+            <MessagesView data={msgQ.data} runId={span.id} spans={spans} />
           ) : run ? (
             <div>
               <div className="hint">No chat messages (empty /messages) — JSON tree fallback.</div>
@@ -197,7 +239,7 @@ export function RunDetail({ span, tabIndex = 0, onTab }: Props) {
               <JsonTree value={run.outputs} onRequestFull={loadFull} />
             </div>
           ) : msgQ.data ? (
-            <MessagesView data={msgQ.data} />
+            <MessagesView data={msgQ.data} runId={span.id} spans={spans} />
           ) : null)}
         {tab === "Inputs" && run && <JsonTree value={run.inputs} onRequestFull={loadFull} />}
         {tab === "Outputs" && run && <JsonTree value={run.outputs} onRequestFull={loadFull} />}

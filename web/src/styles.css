@@ -440,7 +440,21 @@ a { color: var(--accent-ink); }
   background: var(--raise);
 }
 .tool-card .tn { font-weight: 600; font-family: var(--mono); font-size: 12px; }
-.tool-card.unpaired { border-color: var(--error); }
+.tool-card.unpaired { border-color: var(--warn); background: color-mix(in srgb, var(--warn-bg) 55%, transparent); }
+.tool-card .tool-unpaired-note { color: var(--warn); margin-top: 6px; }
+.tool-card.paired-child { border-color: color-mix(in srgb, var(--border) 80%, var(--ok, #34c759)); }
+.tool-card .tool-pair-note { margin-top: 6px; }
+.badge.resumed { background: color-mix(in srgb, var(--warn-bg) 70%, var(--chip)); color: var(--warn); }
+.badge.interrupted { background: var(--error-bg); color: var(--error); }
+.tname .tflag, .tmeta .tflag { font-size: 10px; padding: 0 5px; border-radius: 4px; margin-left: 6px; vertical-align: middle; font-weight: 600; }
+.tname .tflag.resumed, .tmeta .tflag.resumed { background: color-mix(in srgb, var(--warn-bg) 70%, var(--chip)); color: var(--warn); }
+.tname .tflag.interrupted, .tmeta .tflag.interrupted { background: var(--error-bg); color: var(--error); }
+.wf-row .lg-flag { font-size: 10px; margin-left: 4px; padding: 0 4px; border-radius: 3px; font-weight: 600; }
+.wf-row .lg-flag.resumed { background: color-mix(in srgb, var(--warn-bg) 70%, var(--chip)); color: var(--warn); }
+.wf-row .lg-flag.interrupted { background: var(--error-bg); color: var(--error); }
+.empty-not-found { padding: 32px; text-align: center; }
+.empty-not-found h3 { margin: 0 0 8px; font-size: 16px; }
+.empty-not-found .nf-id { font-family: var(--mono); font-size: 12px; color: var(--muted); word-break: break-all; margin: 8px 0 16px; }
 .help-overlay, .auth-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex;
   align-items: center; justify-content: center; z-index: 50;
