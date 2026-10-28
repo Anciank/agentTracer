@@ -27,3 +27,6 @@ secrets/
 
 .venv-compat/
 .venv*/
+
+web/tsconfig.tsbuildinfo
+web/*.tsbuildinfo

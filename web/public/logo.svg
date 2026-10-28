@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 20" width="24" height="20"
+     fill="#1d1d1f" role="img" aria-label="agentTracer">
+  <title>agentTracer</title>
+  <!-- Three spans nested by depth: each starts later and ends sooner than its
+       parent. The trace waterfall the app draws, reduced to its silhouette.
+       The viewBox hugs the ink rather than sitting in a square. Padding it out
+       to 24x24 left the bars under 2.5px at header size, where they blurred
+       into one dark smudge. -->
+  <rect x="0"    y="0"    width="24"   height="4.6" rx="2.3"/>
+  <rect x="5.5"  y="7.7"  width="14.5" height="4.6" rx="2.3"/>
+  <rect x="11"   y="15.4" width="7.5"  height="4.6" rx="2.3"/>
+</svg>

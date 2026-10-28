@@ -1,3 +1,22 @@
-<!doctype html>
-<html><head><meta charset="utf-8"/><title>agentTracer</title></head>
-<body><div id="root"></div><script type="module" src="/src/main.jsx"></script></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light dark" />
+  <link rel="icon" type="image/svg+xml" href="/ui/favicon.svg" />
+  <title>agentTracer</title>
+  <script>
+    try {
+      document.documentElement.dataset.theme =
+        localStorage.getItem("agentTracer.theme") === "dark" ? "dark" : "light";
+    } catch (e) {
+      document.documentElement.dataset.theme = "light";
+    }
+  </script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>
