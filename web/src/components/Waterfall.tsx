@@ -3,6 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { SpanSummary } from "../api/types";
 import { indexTree, visibleRows, treeGuides, isOrphanGroupId } from "../lib/tree";
 import { fmtDurMs, fmtInt } from "../lib/format";
+import { detectLangGraphFlags } from "../lib/langgraphFlags";
 
 const TYPE_COLOR: Record<string, string> = {
   chain: "var(--chain)",
@@ -141,6 +142,20 @@ export function Waterfall({ rows, spanMs, selectedId, folded, onSelect, onToggle
                 )}
                 <span className="dot" style={{ background: color }} />
                 <span className="nm">{r.name}</span>
+                {(() => {
+                  // SpanSummary has no error body — name / has_error heuristics only.
+                  const f = detectLangGraphFlags({
+                    name: r.name,
+                    status: r.status,
+                    has_error: r.has_error,
+                  });
+                  return (
+                    <>
+                      {f.resumed ? <span className="lg-flag resumed">resumed</span> : null}
+                      {f.interrupted ? <span className="lg-flag interrupted">interrupted</span> : null}
+                    </>
+                  );
+                })()}
                 {isFolded ? <span className="fold-count">{kids}</span> : null}
               </div>
               <div className="rtype">{r.run_type}</div>

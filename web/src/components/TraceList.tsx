@@ -16,7 +16,8 @@ import {
   hasChatPreview,
   statusDotClass,
   statusTitle,
-} from "../lib/status";
+} from "../lib/status"
+import { detectLangGraphFlagsFromListItem } from "../lib/langgraphFlags";
 import { ErrorState } from "./ErrorState";
 
 /** Base row height (no preview). With chat preview, use TRACE_ROW_H_PREVIEW.
@@ -312,6 +313,9 @@ export function TraceList({
                   <div className="tline1">
                     <div className="tname" title={t.name}>
                       {t.name}
+                      {detectLangGraphFlagsFromListItem(t).resumed ? (
+                        <span className="tflag resumed" title="LangGraph resume">resumed</span>
+                      ) : null}
                     </div>
                     <div
                       className="tdur"

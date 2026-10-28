@@ -1,0 +1,21 @@
+{
+  "name": "human_gate",
+  "status": "error",
+  "inputs": null,
+  "outputs": {},
+  "extra": {
+    "metadata": {
+      "langgraph_checkpoint_ns": "human_gate:8a281a4d-d626-49e9-c591-5fe6ebcfff49",
+      "langgraph_node": "human_gate",
+      "langgraph_path": [
+        "__pregel_pull",
+        "human_gate"
+      ],
+      "langgraph_step": 16,
+      "langgraph_triggers": [
+        "branch:to:human_gate"
+      ]
+    }
+  },
+  "error": "GraphInterrupt((Interrupt(value={'question': 'Approve this plan/draft?', 'plan': '**Plan: Gateway Pro firmware v3.2 APAC rollout (approval-gated)**\\n\\n- **Draft the rollout plan** using **Google Docs** (or **Confluence**) for the multi-step document, structured as: pre-deployment validation \u2192 phased regional waves (Tier 1: SG/AU/NZ \u2192 Tier 2: JP/KR/TW \u2192 Tier 3: IN/SEA) \u2192 monitoring windows \u2192 rollback criteria. Pull device inventory and regional counts from **Jira/ServiceNow** and **Grafana** dashboards to size each wave.\\n- **Hold for human approval** \u2014 do not distribute or execute. Route the draft via **Slack** (#firmware-approvals) and **email** to the release manager and APAC regional leads, flagging it as DRAFT/PENDING APPROVAL in **Jira** with a blocking status until sign-off is received.', 'draft': 'Draft rollout plan for Gateway Pro firmware v3.2 in APAC is prepared but incomplete and pending human approval. The plan outlines pre-deployment validation, three phased regional waves (Tier 1: SG/AU/NZ; Tier 2: JP/KR/TW; Tier 3: IN/SEA), monitoring windows, and rollback criteria, with device inventory sourced from Jira/ServiceNow. However, the draft is truncated and lacks finalized rollback details and approval-gate specifics. Finalization is on hold until human approval is received.'}, id='61b53142a17638d500d378da740c790a', response_schema=None),))Traceback (most recent call last):\n\n\n  File \"/workspace/lg_complex_app/.venv/lib/python3.13/site-packages/langgraph/_internal/_runnable.py\", line 707, in invoke\n    input = context.run(step.invoke, input, config, **kwargs)\n\n\n  File \"/workspace/lg_complex_app/.venv/lib/python3.13/site-packages/langgraph/_internal/_runnable.py\", line 447, in invoke\n    ret = self.func(*args, **kwargs)\n\n\n  File \"/workspace/lg_complex_app/graph/app.py\", line 231, in human_gate\n    decision = interrupt({\"question\": \"Approve this plan/draft?\", \"plan\": state.get(\"plan\"), \"draft\": state.get(\"draft\") or state.get(\"summary\")})\n\n\n  File \"/workspace/lg_complex_app/.venv/lib/python3.13/site-packages/langgraph/types.py\", line 1038, in interrupt\n    raise GraphInterrupt(\n    ...<7 lines>...\n    )\n\n\nlanggraph.errors.GraphInterrupt: (Interrupt(value={'question': 'Approve this plan/draft?', 'plan': '**Plan: Gateway Pro firmware v3.2 APAC rollout (approval-gated)**\\n\\n- **Draft the rollout plan** using **Google Docs** (or **Confluence**) for the multi-step document, structured as: pre-deployment validation \u2192 phased regional waves (Tier 1: SG/AU/NZ \u2192 Tier 2: JP/KR/TW \u2192 Tier 3: IN/SEA) \u2192 monitoring windows \u2192 rollback criteria. Pull device inventory and regional counts from **Jira/ServiceNow** and **Grafana** dashboards to size each wave.\\n- **Hold for human approval** \u2014 do not distribute or execute. Route the draft via **Slack** (#firmware-approvals) and **email** to the release manager and APAC regional leads, flagging it as DRAFT/PENDING APPROVAL in **Jira** with a blocking status until sign-off is received.', 'draft': 'Draft rollout plan for Gateway Pro firmware v3.2 in APAC is prepared but incomplete and pending human approval. The plan outlines pre-deployment validation, three phased regional waves (Tier 1: SG/AU/NZ; Tier 2: JP/KR/TW; Tier 3: IN/SEA), monitoring windows, and rollback criteria, with device inventory sourced from Jira/ServiceNow. However, the draft is truncated and lacks finalized rollback details and approval-gate specifics. Finalization is on hold until human approval is received.'}, id='61b53142a17638d500d378da740c790a', response_schema=None),)"
+}

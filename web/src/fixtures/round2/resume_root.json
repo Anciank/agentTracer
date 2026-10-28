@@ -1,0 +1,28 @@
+{
+  "name": "approval_plan#0-resume",
+  "status": "success",
+  "inputs": {
+    "input": {
+      "goto": [],
+      "graph": null,
+      "resume": {
+        "approved": true
+      },
+      "update": null
+    }
+  },
+  "outputs": {},
+  "extra": {
+    "metadata": {
+      "LANGSMITH_ENDPOINT": "http://128.1.41.231:1984",
+      "LANGSMITH_PROJECT": "lg-complex-testing",
+      "LANGSMITH_TRACING": "true",
+      "expect_route": "approval",
+      "lg_complex_run": 0,
+      "lg_complex_scenario": "approval_plan",
+      "ls_integration": "langgraph",
+      "thread_id": "lgc-approval_plan-r0-a59cc381"
+    }
+  },
+  "error": null
+}
