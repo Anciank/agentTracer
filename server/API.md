@@ -333,7 +333,7 @@ Headers: `Content-Type` from meta; `Content-Length` when known.
 
 ### `GET /api/ui/projects/{id}/graph` (M3.5)
 
-Aggregate Agent map for a project. `{id}` is the **project name** (session name).
+Aggregate Agent map for a project. `{id}` is a session **UUID or name** (via `LookupSessionID`; unknown → `404`).
 
 **Query:**
 | Param | Default | Notes |
@@ -346,20 +346,58 @@ Aggregate Agent map for a project. `{id}` is the **project name** (session name)
 
 **Response:** `{ project, window:{from,to,preset}, trace_count, nodes[], edges[], edges_hidden[], generated_at, compare? }`  
 Node: `{ key, label, run_type, kind, count, error_count, error_rate, p50_ms, p95_ms, tokens:{input,output,total}, truncated }`  
-Edge: `{ from, to, count, share, avg_ms, p95_ms, error_count, loop, repeat_avg, repeat_max }`  
+`__other__` also includes `rolled_keys: string[]` (keys rolled into the bucket).  
+Edge: `{ from, to, count, share, avg_ms, p95_ms, error_count, error_rate, loop, repeat_avg, repeat_max }`  
 `kind` is `langgraph` \| `run` \| `other`. Truncated tail rolls into `__other__`.
 
 ### `GET /api/ui/projects/{id}/paths` (M3.5)
 
-Top path fingerprints for a project window.
+Top path fingerprints for a project window. `{id}` = session UUID or name (`404` unknown).
 
 **Query:** `window` / `from`+`to` (same as graph), `limit` (default 20).
 
-**Response:** `{ project, window, paths:[{ fingerprint, label, count, share, error_rate, steps:[{key,repeat}] }] }`
+**Response:** `{ project, window, paths:[{ fingerprint, label, count, share, error_rate, p95_ms, fail_nodes, is_new, steps:[{key,repeat}] }] }`  
+- `fail_nodes`: distinct node keys that errored on traces with this fingerprint (sorted).  
+- `is_new`: fingerprint absent from the previous equal-length window.  
+- `p95_ms`: root latency p95 for finished roots on this fingerprint; `null` if none finished.
 
 Fingerprint is the collapsed sequence string (e.g. `supervisor>tools×3>respond`), written on the root when `end_time` is set and refreshed on later child upserts in a finished trace.
 
-### Trace list filters (M3.5)
+### `GET /api/ui/projects/{id}/monitor` (M3.6)
+
+Project Monitor board. `{id}` = session UUID or name (`404` unknown). **Not** an alias of `/api/ui/stats` (stats unchanged).
+
+**Query:** `window=1h|24h|7d` (default `24h`); optional `from`+`to` ISO override (both required to win); optional `limit` (by_model/by_tool cap, default 50).
+
+**Buckets (fixed, zero-filled):** `1h`→1m×60; `24h`→1h×24; `7d`→6h×28. Half-open `[t,t_end)`.
+
+**Headers:** `ETag` (hash of `project_id|window|from|to|trace_count|error_count|last_bucket`); `Cache-Control: private, max-age=0, must-revalidate`. `If-None-Match` → `304`.
+
+**Response `200`:**
+```json
+{
+  "project_id": "…", "project": "support", "window": "24h",
+  "from": "…", "to": "…", "bucket": "1h",
+  "trace_count": 10000, "success_count": 9400, "error_count": 600,
+  "p50_ms": 420, "p99_ms": 3200,
+  "tokens": { "input": 0, "output": 0, "total": 0 },
+  "cost": null,
+  "series_traces": [{ "t": "…", "t_end": "…", "success": 0, "error": 0, "total": 0 }],
+  "series_latency": [{ "t": "…", "t_end": "…", "p50_ms": null, "p99_ms": null }],
+  "series_tokens": [{ "t": "…", "t_end": "…", "input": 0, "output": 0, "total": 0 }],
+  "by_model": [{ "model": "gpt-4o-mini", "calls": 1, "share": 1.0,
+    "error_count": 0, "error_rate": 0, "p50_ms": 10, "p99_ms": 10,
+    "tokens": { "input": 1, "output": 1, "total": 2 } }],
+  "by_tool": [{ "tool": "refund", "calls": 1, "share": 1.0,
+    "error_count": 0, "error_rate": 0, "p50_ms": 5, "p99_ms": 5, "tokens": null }]
+}
+```
+- Tokens series: sum of **all runs** in traces whose root `start_time` falls in the bucket.  
+- `by_model`: `run_type=llm`, null/empty model → `"(unknown)"`.  
+- `by_tool`: `run_type=tool` by run `name`; `tokens` null when tools carry no token counts.  
+- `cost` always `null` (M6 reserved). Migration `007_monitor_indexes.sql` is idempotent.
+
+### Trace list filters (M3.5 + M3.6)
 
 `GET /api/ui/traces` accepts (compose with existing filters + keyset cursor):
 | Param | Meaning |
@@ -368,6 +406,8 @@ Fingerprint is the collapsed sequence string (e.g. `supervisor>tools×3>respond`
 | `node_fail` | Exact `node_key` with an error visit |
 | `edge` | `from>to` transition present |
 | `path` | Exact `path_fingerprint` on the root |
+| `model` | Exact match on a run `model` in the trace (existing) |
+| `tool` | **M3.6** Exact match on a `run_type=tool` run `name` in the trace |
 
 ## Out of scope (do not implement under `/api/ui` in M2)
 
@@ -396,6 +436,7 @@ At ingest (create and PATCH), runs denormalize:
 
 ## Changes
 
+_(2026-10-28)_ M3.6 Monitor `GET /api/ui/projects/{id}/monitor` + `tool=` on traces; `__other__.rolled_keys`; paths `fail_nodes`/`is_new`/`p95_ms`; edge `error_rate`.
 _(2026-10-28)_ LangGraph denorm columns (`langgraph_node`/`langgraph_step`/`path_fingerprint`) + ingest extraction/fallback; index `(session_id, langgraph_node, start_time)`.
 _(2026-10-28)_ SSE `run_upsert` is mandatory on every run create/PATCH (post-merge SpanSummary); relative depth/offset_ms may be briefly stale.
 

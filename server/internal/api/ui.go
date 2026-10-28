@@ -2,8 +2,8 @@ package api
 
 import (
 	"context"
-	"errors"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -29,6 +29,7 @@ func (s *Server) routesUI() {
 	s.mux.HandleFunc("GET /api/ui/stats", s.apiUIStats)
 	s.mux.HandleFunc("GET /api/ui/projects/{id}/graph", s.apiUIGraph)
 	s.mux.HandleFunc("GET /api/ui/projects/{id}/paths", s.apiUIPaths)
+	s.mux.HandleFunc("GET /api/ui/projects/{id}/monitor", s.apiUIMonitor)
 }
 
 func (s *Server) apiUIProjects(w http.ResponseWriter, r *http.Request) {
@@ -103,6 +104,7 @@ func parseUITraceOpts(r *http.Request) (store.TraceListOpts, error) {
 	opts.NodeFail = q.Get("node_fail")
 	opts.Edge = q.Get("edge")
 	opts.Path = q.Get("path")
+	opts.Tool = q.Get("tool")
 	if opts.Edge != "" {
 		parts := splitEdge(opts.Edge)
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
@@ -835,6 +837,71 @@ func (s *Server) apiUIPaths(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, 500, map[string]any{"detail": err.Error()})
+		return
+	}
+	writeJSON(w, 200, out)
+}
+
+func (s *Server) apiUIMonitor(w http.ResponseWriter, r *http.Request) {
+	project := r.PathValue("id")
+	if project == "" {
+		writeJSON(w, 422, map[string]any{"detail": "project required"})
+		return
+	}
+	q := r.URL.Query()
+	opts := store.MonitorOpts{Project: project, Window: q.Get("window")}
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 200 {
+			writeJSON(w, 422, map[string]any{"detail": "limit must be 1..200"})
+			return
+		}
+		opts.Limit = n
+	}
+	if v := q.Get("from"); v != "" {
+		t, err := time.Parse(time.RFC3339Nano, v)
+		if err != nil {
+			t, err = time.Parse(time.RFC3339, v)
+		}
+		if err != nil {
+			writeJSON(w, 422, map[string]any{"detail": "from: " + err.Error()})
+			return
+		}
+		opts.From = &t
+	}
+	if v := q.Get("to"); v != "" {
+		t, err := time.Parse(time.RFC3339Nano, v)
+		if err != nil {
+			t, err = time.Parse(time.RFC3339, v)
+		}
+		if err != nil {
+			writeJSON(w, 422, map[string]any{"detail": "to: " + err.Error()})
+			return
+		}
+		opts.To = &t
+	}
+	if opts.From == nil && opts.To == nil {
+		if opts.Window == "" {
+			opts.Window = "24h"
+		}
+		if opts.Window != "1h" && opts.Window != "24h" && opts.Window != "7d" {
+			writeJSON(w, 422, map[string]any{"detail": "window must be 1h|24h|7d"})
+			return
+		}
+	}
+	out, etag, err := s.store.UIMonitor(r.Context(), opts)
+	if err != nil {
+		if errors.Is(err, store.ErrProjectNotFound) {
+			writeJSON(w, 404, map[string]any{"detail": "not found"})
+			return
+		}
+		writeJSON(w, 500, map[string]any{"detail": err.Error()})
+		return
+	}
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
+	if match := r.Header.Get("If-None-Match"); match != "" && match == etag {
+		w.WriteHeader(http.StatusNotModified)
 		return
 	}
 	writeJSON(w, 200, out)

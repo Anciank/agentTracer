@@ -31,6 +31,7 @@ type TraceListOpts struct {
 	NodeFail string // node_key that must have an error visit
 	Edge     string // "from>to"
 	Path     string // path_fingerprint exact
+	Tool     string // M3.6: exact match on a run_type=tool name in the trace
 }
 
 type cursorPayload struct {
@@ -200,6 +201,12 @@ func (s *Store) UIListTraces(ctx context.Context, opts TraceListOpts) ([]map[str
 		where = append(where, fmt.Sprintf(
 			`EXISTS (SELECT 1 FROM runs x WHERE x.trace_id=r.trace_id AND x.model=$%d)`, n))
 		args = append(args, opts.Model)
+		n++
+	}
+	if opts.Tool != "" {
+		where = append(where, fmt.Sprintf(
+			`EXISTS (SELECT 1 FROM runs x WHERE x.trace_id=r.trace_id AND x.run_type='tool' AND x.name=$%d)`, n))
+		args = append(args, opts.Tool)
 		n++
 	}
 	if opts.RunType != "" {

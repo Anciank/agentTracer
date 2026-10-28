@@ -34,7 +34,7 @@ func testServer(t *testing.T) (*Server, string) {
 		t.Fatal(err)
 	}
 	// isolate: wipe tables
-	_, _ = pool.Exec(ctx, `TRUNCATE attachments, feedback, runs, sessions CASCADE`)
+	_, _ = pool.Exec(ctx, `TRUNCATE attachments, feedback, runs, sessions, trace_graph_cache CASCADE`)
 	key := "test-key-" + uuid.NewString()
 	cfg := config.Config{APIKey: key, CORSOrigins: []string{"*"}}
 	st := store.New(pool, store.NewMemoryBlob())

@@ -60,7 +60,7 @@ func tableExistsPublic(t *testing.T, pool *pgxpool.Pool, name string) bool {
 	return exists
 }
 
-var wantAll = []string{"001_init", "002_run_metrics", "003_langgraph", "004_agent_map", "005_trace_graph_cache", "006_graph_cache_lat_sentinel"}
+var wantAll = []string{"001_init", "002_run_metrics", "003_langgraph", "004_agent_map", "005_trace_graph_cache", "006_graph_cache_lat_sentinel", "007_monitor_indexes"}
 
 func assertVersions(t *testing.T, versions, want []string) {
 	t.Helper()
@@ -190,12 +190,16 @@ func TestUpBootstrapFrom003ThenRuns004(t *testing.T) {
 	}
 }
 
-func TestListSQLIncludes005And006(t *testing.T) {
+func TestListSQLIncludes005And006And007(t *testing.T) {
 	files, err := listSQL()
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{"005_trace_graph_cache.sql": false, "006_graph_cache_lat_sentinel.sql": false}
+	want := map[string]bool{
+		"005_trace_graph_cache.sql": false,
+		"006_graph_cache_lat_sentinel.sql": false,
+		"007_monitor_indexes.sql": false,
+	}
 	for _, f := range files {
 		if _, ok := want[f]; ok {
 			want[f] = true

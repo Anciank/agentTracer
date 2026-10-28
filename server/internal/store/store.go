@@ -402,6 +402,14 @@ func (s *Store) UpsertRun(ctx context.Context, payload map[string]any, op string
 		}
 	}
 	errorStr := asString(merged["error"])
+	// Denormalized usage columns are not in mergedKeys (wire merge skips them).
+	// Overlay top-level payload fields so extractUsage priority-5 can see a create/patch
+	// that sends model / *_tokens directly (tests + some SDK shapes).
+	for _, k := range []string{"input_tokens", "output_tokens", "total_tokens", "model"} {
+		if v, ok := payload[k]; ok && v != nil {
+			merged[k] = v
+		}
+	}
 	inTok, outTok, totTok, modelName := extractUsage(merged)
 	lgNode, lgStep := extractLangGraph(ctx, s, merged)
 	if lgNode == nil && existing != nil {
