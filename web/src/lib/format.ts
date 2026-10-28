@@ -1,5 +1,6 @@
 export function fmtDurMs(ms: number | null | undefined): string {
   if (ms === null || ms === undefined || Number.isNaN(ms)) return "—";
+  if (ms === 0) return "0";
   const s = ms / 1000;
   if (ms < 1) return `${(ms * 1000).toFixed(0)}µs`;
   if (ms < 1000) return `${ms.toFixed(0)}ms`;

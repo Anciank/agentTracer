@@ -32,7 +32,19 @@ export function RunDetail({ span, tabIndex = 0, onTab }: Props) {
   if (!span) {
     return (
       <div className="detail">
-        <div className="detail-inner hint">Select a span</div>
+        <div className="detail-empty">
+          <h3>Select a span</h3>
+          <p>Click a row in the waterfall to inspect inputs, outputs, and metadata.</p>
+          <div className="keys" aria-hidden="true">
+            <kbd>↑</kbd>
+            <kbd>↓</kbd>
+            <span className="hint">move</span>
+            <kbd>Enter</kbd>
+            <span className="hint">open</span>
+            <kbd>Esc</kbd>
+            <span className="hint">back</span>
+          </div>
+        </div>
       </div>
     );
   }

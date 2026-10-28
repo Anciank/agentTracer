@@ -284,14 +284,25 @@ export function TracesPage() {
         {deepTrace && (
           <div className="pane" style={{ display: "flex", flexDirection: "column" }}>
             <div className="pane-head">
-              <h2>{summaryQ.data?.summary.name || "…"}</h2>
-              <div className="meta">
-                {summaryQ.data
-                  ? `${fmtDurMs(summaryQ.data.span_ms)} · ${fmtInt(summaryQ.data.rows.length)} spans · ${fmtInt(
-                      summaryQ.data.summary.tokens.total
-                    )} tok`
-                  : "loading…"}
-                <div style={{ fontFamily: "var(--mono)", fontSize: 11 }}>{deepTrace}</div>
+              <h2 title={summaryQ.data?.summary.name}>{summaryQ.data?.summary.name || "…"}</h2>
+              <div className="meta-row">
+                {summaryQ.data ? (
+                  <>
+                    <span>{fmtDurMs(summaryQ.data.span_ms)}</span>
+                    <span>{fmtInt(summaryQ.data.rows.length)} spans</span>
+                    <span>{fmtInt(summaryQ.data.summary.tokens.total)} tok</span>
+                    {summaryQ.data.summary.model ? (
+                      <span className="tmodel" title={summaryQ.data.summary.model}>
+                        {summaryQ.data.summary.model}
+                      </span>
+                    ) : null}
+                  </>
+                ) : (
+                  <span>loading…</span>
+                )}
+              </div>
+              <div className="meta-id" title={deepTrace}>
+                {deepTrace}
               </div>
             </div>
             {summaryQ.isLoading && !summaryQ.data && <div className="empty">Loading waterfall…</div>}

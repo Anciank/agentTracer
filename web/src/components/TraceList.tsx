@@ -13,6 +13,9 @@ import type { UiFilters } from "../lib/filters";
 import { applyRunUpsert, mergePendingTraces } from "../lib/liveMerge";
 import { ErrorState } from "./ErrorState";
 
+/** Must match `.trow` height in styles.css — virtualizer uses this exactly. */
+export const TRACE_ROW_H = 52;
+
 type InfiniteTraces = { pages: TraceListResponse[]; pageParams: unknown[] };
 
 type Props = {
@@ -201,10 +204,12 @@ export function TraceList({
     if (keepSel) onSelect(keepSel);
   }
 
+  const hideProject = Boolean(filters.project);
+
   const virt = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 56,
+    estimateSize: () => TRACE_ROW_H,
     overscan: 12,
   });
 
@@ -253,44 +258,76 @@ export function TraceList({
         <div style={{ height: virt.getTotalSize(), position: "relative" }}>
           {virt.getVirtualItems().map((vi) => {
             const t = rows[vi.index];
+            const running = t.status === "running";
+            const errored = t.status === "error";
+            const meta: string[] = [];
+            meta.push(fmtRel(t.start));
+            if (!hideProject && t.project) meta.push(t.project);
+            meta.push(`${fmtInt(t.run_count)} runs`);
+            meta.push(`${fmtInt(t.tokens.total)} tok`);
             return (
               <div
                 key={t.trace_id}
+                role="option"
+                aria-selected={t.trace_id === selectedId}
                 className={`trow ${t.trace_id === selectedId ? "active" : ""} ${
-                  t.status === "error" ? "has-error" : ""
-                }`}
+                  errored ? "has-error" : ""
+                } ${running ? "is-running" : ""}`}
                 style={{
                   position: "absolute",
                   top: 0,
                   left: 0,
                   width: "100%",
-                  height: vi.size,
+                  height: TRACE_ROW_H,
                   transform: `translateY(${vi.start}px)`,
                 }}
                 onClick={() => onSelect(t.trace_id)}
                 onDoubleClick={() => onOpen(t.trace_id)}
               >
-                <div>
-                  {t.status === "error" ? (
-                    <span className="pill err">err</span>
-                  ) : t.status === "running" ? (
-                    <span className="pill run">run</span>
-                  ) : (
-                    <span className="pill ok">ok</span>
-                  )}
-                </div>
-                <div>
-                  <div className="tname">{t.name}</div>
-                  <div className="t2">
-                    <span title={t.start}>{fmtRel(t.start)}</span>
-                    <span>{t.project}</span>
-                    <span>{fmtInt(t.run_count)} runs</span>
-                    <span>{fmtInt(t.tokens.total)} tok</span>
-                    {t.model && <span>{t.model}</span>}
-                    {t.error_count > 0 && <span className="pill err">{t.error_count}</span>}
+                <span
+                  className={`tstatus ${errored ? "err" : running ? "run" : "ok"}`}
+                  title={t.status}
+                  aria-label={t.status}
+                />
+                <div className="tbody">
+                  <div className="tline1">
+                    <div className="tname" title={t.name}>
+                      {t.name}
+                    </div>
+                    <div className="tdur" title={running ? "running" : undefined}>
+                      {running ? (
+                        <span className="tdur-run" aria-label="running">
+                          …
+                        </span>
+                      ) : (
+                        fmtDurMs(t.duration_ms)
+                      )}
+                    </div>
+                  </div>
+                  <div className="tline2">
+                    <div className="tmeta" title={meta.join(" · ")}>
+                      {meta.map((part, i) => (
+                        <span key={i} className="tmeta-part">
+                          {i > 0 ? <span className="tdot">·</span> : null}
+                          {part}
+                        </span>
+                      ))}
+                      {t.model ? (
+                        <span className="tmeta-part">
+                          <span className="tdot">·</span>
+                          <span className="tmodel" title={t.model}>
+                            {t.model}
+                          </span>
+                        </span>
+                      ) : null}
+                    </div>
+                    {t.error_count > 0 ? (
+                      <span className="terr" title={`${t.error_count} errors`}>
+                        {fmtInt(t.error_count)}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
-                <div className="tdur">{fmtDurMs(t.duration_ms)}</div>
               </div>
             );
           })}
