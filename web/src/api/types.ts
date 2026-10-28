@@ -1,4 +1,4 @@
-/** Frozen M2 /api/ui shapes — keep in sync with /workspace/agentTracer_api_shapes.md */
+/** M2 /api/ui shapes — keep in sync with server/API.md */
 
 export type Tokens = { input: number; output: number; total: number };
 

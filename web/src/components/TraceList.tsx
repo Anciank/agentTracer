@@ -86,15 +86,38 @@ export function TraceList({
           return;
         }
         if (ev.type === "trace") {
-          // Queue only — list data/order/scroll/selection stay put.
+          // Real server emits `trace` for new roots AND rollup refresh. Only truly
+          // new ids queue behind the pill; known rows patch in place (no reorder).
+          const tid = ev.data.trace_id;
+          if (rowIdsRef.current.has(tid)) {
+            qc.setQueryData<InfiniteTraces>(["traces", params], (old) => {
+              if (!old) return old;
+              let touched = false;
+              const pages = old.pages.map((page) => {
+                const idx = page.traces.findIndex((t) => t.trace_id === tid);
+                if (idx < 0) return page;
+                touched = true;
+                const next = page.traces.slice();
+                next[idx] = { ...page.traces[idx], ...ev.data };
+                return { ...page, traces: next };
+              });
+              return touched ? { ...old, pages } : old;
+            });
+            return;
+          }
           setPending((prev) => {
-            if (prev.some((t) => t.trace_id === ev.data.trace_id)) return prev;
-            if (rowIdsRef.current.has(ev.data.trace_id)) return prev;
+            const i = prev.findIndex((t) => t.trace_id === tid);
+            if (i >= 0) {
+              const next = prev.slice();
+              next[i] = ev.data;
+              return next;
+            }
             return [ev.data, ...prev].slice(0, 500);
           });
           return;
         }
         if (ev.type === "run_upsert") {
+          // Payload: { trace_id, row: SpanSummary } on every create and PATCH.
           const { trace_id, row } = ev.data;
           const isOpen = openRef.current === trace_id;
 
@@ -119,13 +142,12 @@ export function TraceList({
               if (sum) {
                 next[idx] = { ...sum.summary };
               } else {
-                const appending = !isOpen; // without open cache we soft-bump counts
+                // Soft status/error bump only — do not +1 run_count (PATCH also upserts).
                 next[idx] = {
                   ...cur,
-                  run_count: appending ? cur.run_count + 1 : cur.run_count,
                   error_count:
                     row.has_error || row.status === "error"
-                      ? Math.max(cur.error_count, cur.error_count + 1)
+                      ? Math.max(cur.error_count, 1)
                       : cur.error_count,
                   status:
                     row.status === "error"
