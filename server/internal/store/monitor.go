@@ -145,8 +145,10 @@ func (s *Store) UIMonitor(ctx context.Context, opts MonitorOpts) (map[string]any
 	}
 
 	// Roots + per-trace llm tokens in one pass (lateral on covering idx_runs_trace_llm_tokens).
+	failedPred := TraceFailedExistsSQL("r.trace_id")
 	rows, err := s.pool.Query(ctx, `
-		SELECT r.trace_id, r.start_time, r.end_time, r.error,
+		SELECT r.trace_id, r.start_time, r.end_time,
+			(`+failedPred+`) AS is_failed,
 			COALESCE(t.i, 0), COALESCE(t.o, 0), COALESCE(t.tot, 0)
 		FROM runs r
 		LEFT JOIN LATERAL (
@@ -169,9 +171,9 @@ func (s *Store) UIMonitor(ctx context.Context, opts MonitorOpts) (map[string]any
 		var tid uuid.UUID
 		var start time.Time
 		var end *time.Time
-		var errStr *string
+		var isFailed bool
 		var in, out, tot int64
-		if err := rows.Scan(&tid, &start, &end, &errStr, &in, &out, &tot); err != nil {
+		if err := rows.Scan(&tid, &start, &end, &isFailed, &in, &out, &tot); err != nil {
 			rows.Close()
 			return nil, "", err
 		}
@@ -180,7 +182,7 @@ func (s *Store) UIMonitor(ctx context.Context, opts MonitorOpts) (map[string]any
 		tokOut += out
 		tokTot += tot
 		bi := bucketIndex(start)
-		isErr := errStr != nil && *errStr != ""
+		isErr := isFailed
 		if isErr {
 			errorCount++
 		} else if end != nil {
@@ -310,10 +312,12 @@ func zeroSeries(starts []time.Time, dur time.Duration) ([]map[string]any, []map[
 func (s *Store) monitorByModel(ctx context.Context, sessionID uuid.UUID, from, to time.Time, limit int) ([]map[string]any, error) {
 	// Child start_time window + session covering index (idx_runs_session_llm_monitor).
 	// For LangGraph multipart seeds, child stamps align with the root window.
+	// error_count uses the shared failed-trace definition (any run in the LLM's trace).
+	failedPred := TraceFailedExistsSQL("c.trace_id")
 	rows, err := s.pool.Query(ctx, `
 		SELECT COALESCE(NULLIF(c.model, ''), '(unknown)') AS model,
 			COUNT(*)::int AS calls,
-			COUNT(*) FILTER (WHERE c.error IS NOT NULL AND c.error <> '')::int AS errors,
+			COUNT(*) FILTER (WHERE `+failedPred+`)::int AS errors,
 			COALESCE(SUM(c.input_tokens),0)::bigint,
 			COALESCE(SUM(c.output_tokens),0)::bigint,
 			COALESCE(SUM(c.total_tokens),0)::bigint,

@@ -37,6 +37,9 @@ func RunStatus(run map[string]any) string {
 	if err, ok := run["error"]; ok && err != nil && err != "" {
 		return "error"
 	}
+	if st, ok := run["status"].(string); ok && st == "error" {
+		return "error"
+	}
 	if run["end_time"] == nil || run["end_time"] == "" {
 		return "running"
 	}

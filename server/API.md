@@ -440,6 +440,9 @@ At ingest (create and PATCH), runs denormalize:
 
 ## Changes
 
+_(2026-10-28)_ Failed-trace definition: a trace is failed if **any** run in it has a non-empty `error` or `status='error'` (not root-only). Shared by Monitor `error_count` / series, list `status=error` / Errors-only, project cards `error_rate_24h`, `/stats` error_rate + by_day.errors, and Monitor `by_model` error_count/rate (LLM calls belonging to a failed trace). Index `idx_runs_trace_failed`.
+
+
 _(2026-10-28)_ Monitor `by_tool` tokens: real SUM(input/output/total); null only when all zero; no invented split when only total is set. Documented vs by_model/series.
 _(2026-10-28)_ Ingest: UTF-8-safe preview + NUL strip; PersistBatch degraded retry + `GET /info` `ingest_stats` (multipart stays 204).
 _(2026-10-28)_ M3.6 Monitor `GET /api/ui/projects/{id}/monitor` + `tool=` on traces; `__other__.rolled_keys`; paths `fail_nodes`/`is_new`/`p95_ms`; edge `error_rate`.

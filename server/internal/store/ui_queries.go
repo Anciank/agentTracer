@@ -93,11 +93,12 @@ func (s *Store) UIProjects(ctx context.Context) ([]map[string]any, error) {
 			traceID uuid.UUID
 			start   time.Time
 			end     *time.Time
-			err     *string
+			failed  bool
 			tokens  int
 		}
+		failedPred := TraceFailedExistsSQL("runs.trace_id")
 		qrows, err := s.pool.Query(ctx, `
-			SELECT trace_id, start_time, end_time, error, total_tokens
+			SELECT trace_id, start_time, end_time, (`+failedPred+`) AS is_failed, total_tokens
 			FROM runs
 			WHERE session_id=$1 AND parent_run_id IS NULL AND start_time IS NOT NULL AND start_time >= $2`,
 			sess.id, weekAgo)
@@ -107,7 +108,7 @@ func (s *Store) UIProjects(ctx context.Context) ([]map[string]any, error) {
 		var roots []rootRow
 		for qrows.Next() {
 			var r rootRow
-			if err := qrows.Scan(&r.traceID, &r.start, &r.end, &r.err, &r.tokens); err != nil {
+			if err := qrows.Scan(&r.traceID, &r.start, &r.end, &r.failed, &r.tokens); err != nil {
 				qrows.Close()
 				return nil, err
 			}
@@ -124,7 +125,7 @@ func (s *Store) UIProjects(ctx context.Context) ([]map[string]any, error) {
 			}
 			total24++
 			tok24 += r.tokens
-			if r.err != nil && *r.err != "" {
+			if r.failed {
 				err24++
 			}
 			if r.end != nil {
@@ -221,6 +222,17 @@ func (s *Store) UIListTraces(ctx context.Context, opts TraceListOpts) ([]map[str
 		args = append(args, "%"+opts.Q+"%")
 		n++
 	}
+	switch opts.Status {
+	case "error":
+		where = append(where, TraceFailedExistsSQL("r.trace_id"))
+	case "success":
+		// completed root, no failed run in the trace
+		where = append(where, "r.end_time IS NOT NULL")
+		where = append(where, "NOT "+TraceFailedExistsSQL("r.trace_id"))
+	case "running":
+		where = append(where, "r.end_time IS NULL")
+		where = append(where, "NOT "+TraceFailedExistsSQL("r.trace_id"))
+	}
 	if opts.CursorStart != nil && opts.CursorTraceID != "" {
 		where = append(where, fmt.Sprintf(
 			`(r.start_time, r.trace_id) < ($%d::timestamptz, $%d::uuid)`, n, n+1))
@@ -240,8 +252,7 @@ func (s *Store) UIListTraces(ctx context.Context, opts TraceListOpts) ([]map[str
 	case "tokens_desc":
 		order = "r.total_tokens DESC, r.trace_id DESC"
 	case "errors_desc":
-		// approximate via root error first
-		order = `(r.error IS NOT NULL AND r.error<>'') DESC, r.start_time DESC, r.trace_id DESC`
+		order = `(` + TraceFailedExistsSQL("r.trace_id") + `) DESC, r.start_time DESC, r.trace_id DESC`
 	}
 
 	q := fmt.Sprintf(`
@@ -349,7 +360,7 @@ func buildUITraceSummary(traceID, project string, runs []map[string]any) map[str
 			}
 		}
 		st := runStatus(r)
-		if st == "error" {
+		if RunHasError(r) || st == "error" {
 			errCount++
 		}
 		if st == "running" {
@@ -419,7 +430,7 @@ func buildUITraceSummary(traceID, project string, runs []map[string]any) map[str
 }
 
 func runStatus(r map[string]any) string {
-	if e := asString(r["error"]); e != "" {
+	if RunHasError(r) {
 		return "error"
 	}
 	if r["end_time"] == nil || asString(r["end_time"]) == "" {
@@ -452,9 +463,10 @@ func (s *Store) UIStats(ctx context.Context, project string, from, to *time.Time
 		sessFilter = " AND s.name=$3"
 		args = append(args, project)
 	}
-	// roots for latency / error / count
+	// roots for latency / error / count — error uses shared any-run failed definition
+	failedPred := TraceFailedExistsSQL("r.trace_id")
 	q := `
-		SELECT r.trace_id, r.start_time, r.end_time, r.error
+		SELECT r.trace_id, r.start_time, r.end_time, (` + failedPred + `) AS is_failed
 		FROM runs r LEFT JOIN sessions s ON s.id=r.session_id
 		WHERE r.parent_run_id IS NULL AND r.start_time >= $1 AND r.start_time < $2` + sessFilter
 	rows, err := s.pool.Query(ctx, q, args...)
@@ -468,12 +480,12 @@ func (s *Store) UIStats(ctx context.Context, project string, from, to *time.Time
 		var tid uuid.UUID
 		var start time.Time
 		var end *time.Time
-		var errStr *string
-		if err := rows.Scan(&tid, &start, &end, &errStr); err != nil {
+		var isFailed bool
+		if err := rows.Scan(&tid, &start, &end, &isFailed); err != nil {
 			return nil, err
 		}
 		traces++
-		if errStr != nil && *errStr != "" {
+		if isFailed {
 			errors++
 		}
 		if end != nil {
@@ -491,7 +503,7 @@ func (s *Store) UIStats(ctx context.Context, project string, from, to *time.Time
 	dayQ := `
 		SELECT date_trunc('day', r.start_time AT TIME ZONE 'UTC')::date AS day,
 			COUNT(DISTINCT r.trace_id) FILTER (WHERE r.parent_run_id IS NULL),
-			COUNT(DISTINCT r.trace_id) FILTER (WHERE r.parent_run_id IS NULL AND r.error IS NOT NULL AND r.error<>''),
+			COUNT(DISTINCT r.trace_id) FILTER (WHERE r.parent_run_id IS NULL AND ` + failedPred + `),
 			COALESCE(SUM(r.total_tokens),0)
 		FROM runs r LEFT JOIN sessions s ON s.id=r.session_id
 		WHERE r.start_time >= $1 AND r.start_time < $2` + sessFilter + `
