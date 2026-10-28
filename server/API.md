@@ -328,6 +328,45 @@ Headers: `Content-Type` from meta; `Content-Length` when known.
 
 ---
 
+
+### `GET /api/ui/projects/{id}/graph` (M3.5)
+
+Aggregate Agent map for a project. `{id}` is the **project name** (session name).
+
+**Query:**
+| Param | Default | Notes |
+|---|---|---|
+| `window` | `24h` | `1h` \| `24h` \| `7d` (or omit and pass `from`+`to`) |
+| `from`, `to` | — | RFC3339; when both set, overrides preset |
+| `top_n` | `15` | Max named nodes; failing nodes always kept |
+| `min_edge_share` | `0.01` | Edges below → `edges_hidden` |
+| `compare` | — | `1` adds previous equal-window deltas |
+
+**Response:** `{ project, window:{from,to,preset}, trace_count, nodes[], edges[], edges_hidden[], generated_at, compare? }`  
+Node: `{ key, label, run_type, kind, count, error_count, error_rate, p50_ms, p95_ms, tokens:{input,output,total}, truncated }`  
+Edge: `{ from, to, count, share, avg_ms, p95_ms, error_count, loop, repeat_avg, repeat_max }`  
+`kind` is `langgraph` \| `run` \| `other`. Truncated tail rolls into `__other__`.
+
+### `GET /api/ui/projects/{id}/paths` (M3.5)
+
+Top path fingerprints for a project window.
+
+**Query:** `window` / `from`+`to` (same as graph), `limit` (default 20).
+
+**Response:** `{ project, window, paths:[{ fingerprint, label, count, share, error_rate, steps:[{key,repeat}] }] }`
+
+Fingerprint is the collapsed sequence string (e.g. `supervisor>tools×3>respond`), written on the root when `end_time` is set and refreshed on later child upserts in a finished trace.
+
+### Trace list filters (M3.5)
+
+`GET /api/ui/traces` accepts (compose with existing filters + keyset cursor):
+| Param | Meaning |
+|---|---|
+| `node` | Exact `node_key` visit in the trace |
+| `node_fail` | Exact `node_key` with an error visit |
+| `edge` | `from>to` transition present |
+| `path` | Exact `path_fingerprint` on the root |
+
 ## Out of scope (do not implement under `/api/ui` in M2)
 
 - Any `cost_usd*` field or price map endpoint (`/api/ui/models/prices` deferred).

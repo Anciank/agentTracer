@@ -26,6 +26,8 @@ func (s *Server) routesUI() {
 	s.mux.HandleFunc("GET /api/ui/runs/{id}/messages", s.apiUIRunMessages)
 	s.mux.HandleFunc("GET /api/ui/runs/{id}/attachments/{name}", s.apiUIAttachment)
 	s.mux.HandleFunc("GET /api/ui/stats", s.apiUIStats)
+	s.mux.HandleFunc("GET /api/ui/projects/{id}/graph", s.apiUIGraph)
+	s.mux.HandleFunc("GET /api/ui/projects/{id}/paths", s.apiUIPaths)
 }
 
 func (s *Server) apiUIProjects(w http.ResponseWriter, r *http.Request) {
@@ -96,7 +98,26 @@ func parseUITraceOpts(r *http.Request) (store.TraceListOpts, error) {
 		opts.CursorStart = &st
 		opts.CursorTraceID = tid
 	}
+	opts.Node = q.Get("node")
+	opts.NodeFail = q.Get("node_fail")
+	opts.Edge = q.Get("edge")
+	opts.Path = q.Get("path")
+	if opts.Edge != "" {
+		parts := splitEdge(opts.Edge)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return opts, fmt.Errorf("edge must be from>to")
+		}
+	}
 	return opts, nil
+}
+
+func splitEdge(s string) []string {
+	for i := 0; i < len(s); i++ {
+		if s[i] == '>' {
+			return []string{s[:i], s[i+1:]}
+		}
+	}
+	return nil
 }
 
 func (s *Server) apiUITraces(w http.ResponseWriter, r *http.Request) {
@@ -615,7 +636,6 @@ func (s *Server) spanSummaryForLive(ctx context.Context, ev live.RunEvent) map[s
 	}
 }
 
-
 func mustParse(s string) *time.Time {
 	t, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
@@ -700,4 +720,112 @@ func orDef(s, d string) string {
 		return d
 	}
 	return s
+}
+
+func (s *Server) apiUIGraph(w http.ResponseWriter, r *http.Request) {
+	project := r.PathValue("id")
+	if project == "" {
+		writeJSON(w, 422, map[string]any{"detail": "project required"})
+		return
+	}
+	q := r.URL.Query()
+	opts := store.GraphOpts{Project: project, Window: q.Get("window"), Compare: q.Get("compare") == "1"}
+	if v := q.Get("top_n"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 100 {
+			writeJSON(w, 422, map[string]any{"detail": "top_n must be 1..100"})
+			return
+		}
+		opts.TopN = n
+	}
+	if v := q.Get("min_edge_share"); v != "" {
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil || f < 0 || f > 1 {
+			writeJSON(w, 422, map[string]any{"detail": "min_edge_share must be 0..1"})
+			return
+		}
+		opts.MinEdgeShare = f
+	}
+	if v := q.Get("from"); v != "" {
+		t, err := time.Parse(time.RFC3339Nano, v)
+		if err != nil {
+			t, err = time.Parse(time.RFC3339, v)
+		}
+		if err != nil {
+			writeJSON(w, 422, map[string]any{"detail": "from: " + err.Error()})
+			return
+		}
+		opts.From = &t
+	}
+	if v := q.Get("to"); v != "" {
+		t, err := time.Parse(time.RFC3339Nano, v)
+		if err != nil {
+			t, err = time.Parse(time.RFC3339, v)
+		}
+		if err != nil {
+			writeJSON(w, 422, map[string]any{"detail": "to: " + err.Error()})
+			return
+		}
+		opts.To = &t
+	}
+	if opts.Window != "" && opts.Window != "1h" && opts.Window != "24h" && opts.Window != "7d" && opts.From == nil {
+		writeJSON(w, 422, map[string]any{"detail": "window must be 1h|24h|7d"})
+		return
+	}
+	out, err := s.store.UIGraph(r.Context(), opts)
+	if err != nil {
+		writeJSON(w, 500, map[string]any{"detail": err.Error()})
+		return
+	}
+	writeJSON(w, 200, out)
+}
+
+func (s *Server) apiUIPaths(w http.ResponseWriter, r *http.Request) {
+	project := r.PathValue("id")
+	if project == "" {
+		writeJSON(w, 422, map[string]any{"detail": "project required"})
+		return
+	}
+	q := r.URL.Query()
+	opts := store.PathsOpts{Project: project, Window: q.Get("window")}
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 100 {
+			writeJSON(w, 422, map[string]any{"detail": "limit must be 1..100"})
+			return
+		}
+		opts.Limit = n
+	}
+	if v := q.Get("from"); v != "" {
+		t, err := time.Parse(time.RFC3339Nano, v)
+		if err != nil {
+			t, err = time.Parse(time.RFC3339, v)
+		}
+		if err != nil {
+			writeJSON(w, 422, map[string]any{"detail": "from: " + err.Error()})
+			return
+		}
+		opts.From = &t
+	}
+	if v := q.Get("to"); v != "" {
+		t, err := time.Parse(time.RFC3339Nano, v)
+		if err != nil {
+			t, err = time.Parse(time.RFC3339, v)
+		}
+		if err != nil {
+			writeJSON(w, 422, map[string]any{"detail": "to: " + err.Error()})
+			return
+		}
+		opts.To = &t
+	}
+	if opts.Window != "" && opts.Window != "1h" && opts.Window != "24h" && opts.Window != "7d" && opts.From == nil {
+		writeJSON(w, 422, map[string]any{"detail": "window must be 1h|24h|7d"})
+		return
+	}
+	out, err := s.store.UIPaths(r.Context(), opts)
+	if err != nil {
+		writeJSON(w, 500, map[string]any{"detail": err.Error()})
+		return
+	}
+	writeJSON(w, 200, out)
 }
