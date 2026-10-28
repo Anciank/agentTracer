@@ -148,6 +148,11 @@ export default function ProjectMonitorPage({ projectId, window: win }: Props) {
     () => (data ? sortTools(data.by_tool, ui.toolSort.key, ui.toolSort.dir) : []),
     [data, ui.toolSort]
   );
+  /** Hide Tokens column when every tool row has null/empty/zero tokens. */
+  const showToolTokens = useMemo(
+    () => tools.some((r) => r.tokens != null && r.tokens.total != null && r.tokens.total > 0),
+    [tools]
+  );
 
   const toggleSort = (table: "model" | "tool", key: SortKey) => {
     setUi((u) => {
@@ -401,7 +406,7 @@ export default function ProjectMonitorPage({ projectId, window: win }: Props) {
                         ["error_rate", "Errors"],
                         ["p50_ms", "p50"],
                         ["p99_ms", "p99"],
-                        ["tokens", "Tokens"],
+                        ...(showToolTokens ? ([["tokens", "Tokens"]] as [SortKey, string][]) : []),
                       ] as [SortKey, string][]
                     ).map(([k, label]) => (
                       <th key={k}>
@@ -439,7 +444,9 @@ export default function ProjectMonitorPage({ projectId, window: win }: Props) {
                       </td>
                       <td>{fmtDurMs(r.p50_ms)}</td>
                       <td>{fmtDurMs(r.p99_ms)}</td>
-                      <td>{r.tokens && r.tokens.total > 0 ? fmtInt(r.tokens.total) : "—"}</td>
+                      {showToolTokens ? (
+                        <td>{r.tokens && r.tokens.total > 0 ? fmtInt(r.tokens.total) : "—"}</td>
+                      ) : null}
                     </tr>
                   ))}
                 </tbody>

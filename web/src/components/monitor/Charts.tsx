@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { LatencyBucket, MonitorBucketSize, TokenBucket, TraceBucket } from "../../api/types";
 import { fmtDurMs, fmtInt } from "../../lib/format";
 
-const PAD = { l: 52, r: 12, t: 14, b: 28 };
+const PAD = { l: 52, r: 28, t: 14, b: 28 };
 
 function useWidth(defaultW = 640): { hostRef: RefObject<HTMLDivElement>; w: number } {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -45,6 +45,14 @@ export function xLabelIndices(n: number, target = 6): number[] {
     out.push(Math.round((i * (n - 1)) / (count - 1)));
   }
   return [...new Set(out)];
+}
+
+/** Keep first/last x labels inside the SVG (no clip at edges). */
+export function xLabelAnchor(i: number, n: number): "start" | "middle" | "end" {
+  if (n <= 1) return "middle";
+  if (i === 0) return "start";
+  if (i === n - 1) return "end";
+  return "middle";
 }
 
 function yTicks(max: number, n = 4): number[] {
@@ -153,7 +161,7 @@ export function StackedTracesChart({
           if (!xLabels.has(i)) return null;
           const x = PAD.l + i * (barW + gap) + barW / 2;
           return (
-            <text key={`xl-${s.t}`} x={x} y={height - 8} textAnchor="middle" className="mon-axis">
+            <text key={`xl-${s.t}`} x={x} y={height - 8} textAnchor={xLabelAnchor(i, n)} className="mon-axis">
               {fmtBucketLabel(s.t, bucket)}
             </text>
           );
@@ -239,7 +247,7 @@ export function LatencyLinesChart({
         {series.map((s, i) => {
           if (!xLabels.has(i)) return null;
           return (
-            <text key={`xl-${s.t}`} x={xAt(i)} y={height - 8} textAnchor="middle" className="mon-axis">
+            <text key={`xl-${s.t}`} x={xAt(i)} y={height - 8} textAnchor={xLabelAnchor(i, n)} className="mon-axis">
               {fmtBucketLabel(s.t, bucket)}
             </text>
           );
@@ -337,7 +345,7 @@ export function TokensChart({
           if (!xLabels.has(i)) return null;
           const x = PAD.l + i * (barW + gap) + barW / 2;
           return (
-            <text key={`xl-${s.t}`} x={x} y={height - 8} textAnchor="middle" className="mon-axis">
+            <text key={`xl-${s.t}`} x={x} y={height - 8} textAnchor={xLabelAnchor(i, n)} className="mon-axis">
               {fmtBucketLabel(s.t, bucket)}
             </text>
           );
