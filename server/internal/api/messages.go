@@ -7,15 +7,63 @@ import (
 )
 
 // NormalizeMessages sniffs common chat shapes and returns the frozen UI messages response.
+// Prefer outputs.messages when it is a superset/prefix-extension of inputs.messages
+// (typical LangGraph chain: inputs = prior turns, outputs = prior + AI reply).
+// Otherwise show inputs then append novel output messages (dedupe by id, else role+content).
 func NormalizeMessages(inputs, outputs any) map[string]any {
 	empty := map[string]any{"messages": []any{}, "paired": []any{}, "raw_path": nil}
 
-	type hit struct {
-		path string
-		msgs []any
-		src  string
+	inHit := sniffMessages(inputs, "inputs")
+	outHit := sniffMessages(outputs, "outputs")
+
+	if inHit == nil && outHit == nil {
+		return empty
 	}
-	try := func(path string, v any, src string) *hit {
+
+	var raw []any
+	var path string
+	var src string
+	switch {
+	case inHit != nil && outHit != nil:
+		if messagesSuperset(outHit.msgs, inHit.msgs) {
+			raw, path, src = outHit.msgs, outHit.path, outHit.src
+		} else {
+			raw = mergeMessages(inHit.msgs, outHit.msgs)
+			path = inHit.path + "+" + outHit.path
+			src = inHit.src
+			if src == "unknown" {
+				src = outHit.src
+			}
+		}
+	case inHit != nil:
+		raw, path, src = inHit.msgs, inHit.path, inHit.src
+	default:
+		raw, path, src = outHit.msgs, outHit.path, outHit.src
+	}
+
+	outMsgs := make([]map[string]any, 0, len(raw))
+	for i, r := range raw {
+		outMsgs = append(outMsgs, normalizeOneMessage(i, r, src))
+	}
+	paired := pairToolCalls(outMsgs)
+	return map[string]any{
+		"messages": outMsgs,
+		"paired":   paired,
+		"raw_path": path,
+	}
+}
+
+type msgHit struct {
+	path string
+	msgs []any
+	src  string
+}
+
+func sniffMessages(blob any, root string) *msgHit {
+	if blob == nil {
+		return nil
+	}
+	try := func(path string, v any, src string) *msgHit {
 		if v == nil {
 			return nil
 		}
@@ -23,71 +71,56 @@ func NormalizeMessages(inputs, outputs any) map[string]any {
 		if !ok || len(arr) == 0 {
 			return nil
 		}
-		// Heuristic: first element looks like a message
 		first, ok := arr[0].(map[string]any)
 		if !ok {
 			return nil
 		}
-		if !(hasAny(first, "role", "type", "content") || hasAny(first, "id", "kwargs")) {
+		if !(hasAny(first, "role", "type", "content") || hasAny(first, "id", "kwargs", "lc")) {
 			return nil
 		}
-		return &hit{path: path, msgs: arr, src: src}
+		return &msgHit{path: path, msgs: arr, src: src}
 	}
 
-	var found *hit
-	if m, ok := inputs.(map[string]any); ok {
-		found = try("inputs.messages", m["messages"], "openai")
-		if found == nil {
-			if kw, ok := m["kwargs"].(map[string]any); ok {
-				found = try("inputs.kwargs.input", kw["input"], "langchain")
-			}
-		}
-		if found == nil {
-			found = try("inputs", inputs, "unknown")
+	m, ok := blob.(map[string]any)
+	if !ok {
+		return try(root, blob, "unknown")
+	}
+	if h := try(root+".messages", m["messages"], "openai"); h != nil {
+		return h
+	}
+	if kw, ok := m["kwargs"].(map[string]any); ok {
+		if h := try(root+".kwargs.input", kw["input"], "langchain"); h != nil {
+			return h
 		}
 	}
-	if found == nil {
-		if m, ok := outputs.(map[string]any); ok {
-			found = try("outputs.messages", m["messages"], "openai")
-			if found == nil {
-				if gens, ok := m["generations"].([]any); ok {
-					var msgs []any
-					for _, g := range gens {
-						row, _ := g.([]any)
-						for _, cell := range row {
-							cm, _ := cell.(map[string]any)
-							if cm == nil {
-								continue
-							}
-							if msg, ok := cm["message"]; ok {
-								msgs = append(msgs, msg)
-							}
-						}
-					}
-					if len(msgs) > 0 {
-						found = &hit{path: "outputs.generations[*][*].message", msgs: msgs, src: "langchain"}
+	if gens, ok := m["generations"].([]any); ok {
+		var msgs []any
+		for _, g := range gens {
+			row, _ := g.([]any)
+			if row == nil {
+				// flat generations[*].message
+				if cm, ok := g.(map[string]any); ok {
+					if msg, ok := cm["message"]; ok {
+						msgs = append(msgs, msg)
 					}
 				}
+				continue
 			}
-			if found == nil {
-				found = try("outputs", outputs, "unknown")
+			for _, cell := range row {
+				cm, _ := cell.(map[string]any)
+				if cm == nil {
+					continue
+				}
+				if msg, ok := cm["message"]; ok {
+					msgs = append(msgs, msg)
+				}
 			}
 		}
+		if len(msgs) > 0 {
+			return &msgHit{path: root + ".generations[*][*].message", msgs: msgs, src: "langchain"}
+		}
 	}
-	if found == nil {
-		return empty
-	}
-
-	outMsgs := make([]map[string]any, 0, len(found.msgs))
-	for i, raw := range found.msgs {
-		outMsgs = append(outMsgs, normalizeOneMessage(i, raw, found.src))
-	}
-	paired := pairToolCalls(outMsgs)
-	return map[string]any{
-		"messages": outMsgs,
-		"paired":   paired,
-		"raw_path": found.path,
-	}
+	return try(root, blob, "unknown")
 }
 
 func hasAny(m map[string]any, keys ...string) bool {
@@ -97,6 +130,91 @@ func hasAny(m map[string]any, keys ...string) bool {
 		}
 	}
 	return false
+}
+
+// messagesSuperset reports whether outer contains inner as a prefix (by dedupe key).
+func messagesSuperset(outer, inner []any) bool {
+	if len(outer) < len(inner) {
+		return false
+	}
+	for i := range inner {
+		if messageDedupeKey(outer[i]) != messageDedupeKey(inner[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func mergeMessages(inputs, outputs []any) []any {
+	seen := map[string]bool{}
+	out := make([]any, 0, len(inputs)+len(outputs))
+	for _, m := range inputs {
+		k := messageDedupeKey(m)
+		seen[k] = true
+		out = append(out, m)
+	}
+	for _, m := range outputs {
+		k := messageDedupeKey(m)
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, m)
+	}
+	return out
+}
+
+// messageDedupeKey prefers an explicit id; else role+content fingerprint.
+func messageDedupeKey(raw any) string {
+	m, ok := raw.(map[string]any)
+	if !ok {
+		b, _ := json.Marshal(raw)
+		return "raw:" + string(b)
+	}
+	if id := extractMessageID(m); id != "" {
+		return "id:" + id
+	}
+	role, content := peekRoleContent(m)
+	return "rc:" + role + "|" + content
+}
+
+func extractMessageID(m map[string]any) string {
+	if id := asStr(m["id"]); id != "" && !strings.Contains(id, "/") {
+		// plain string id (not LC id path array serialized oddly)
+		return id
+	}
+	if kw, ok := m["kwargs"].(map[string]any); ok {
+		if id := asStr(kw["id"]); id != "" {
+			return id
+		}
+	}
+	if data, ok := m["data"].(map[string]any); ok {
+		if id := asStr(data["id"]); id != "" {
+			return id
+		}
+	}
+	return ""
+}
+
+func peekRoleContent(m map[string]any) (role, content string) {
+	nm := normalizeOneMessage(0, m, "unknown")
+	role = asStr(nm["role"])
+	parts, _ := nm["content"].([]any)
+	var b strings.Builder
+	for _, p := range parts {
+		pm, _ := p.(map[string]any)
+		if pm == nil {
+			continue
+		}
+		switch asStr(pm["type"]) {
+		case "text":
+			b.WriteString(asStr(pm["text"]))
+		case "json":
+			raw, _ := json.Marshal(pm["value"])
+			b.Write(raw)
+		}
+	}
+	return role, b.String()
 }
 
 func normalizeOneMessage(i int, raw any, defaultSrc string) map[string]any {
@@ -109,12 +227,27 @@ func normalizeOneMessage(i int, raw any, defaultSrc string) map[string]any {
 		}
 	}
 	src := defaultSrc
+	// Work on a shallow copy so unwrap does not mutate the caller's map.
+	mm := map[string]any{}
+	for k, v := range m {
+		mm[k] = v
+	}
+	m = mm
+
+	// LangChain serialized message: type "constructor" and/or `lc` key present.
+	// Unwrap kwargs (preferred) or data before reading role/content — otherwise
+	// role becomes "constructor" and content stays empty.
+	if isLCSerialized(m) {
+		src = "langchain"
+		unwrapLCMessage(m)
+	}
+
 	role := strings.ToLower(asStr(m["role"]))
 	if role == "" {
 		role = strings.ToLower(asStr(m["type"]))
 	}
-	// LangChain nested
-	if role == "" {
+	// Non-constructor LC nesting (legacy dumps with only data/kwargs, no lc/type).
+	if role == "" || role == "constructor" {
 		if data, ok := m["data"].(map[string]any); ok {
 			role = strings.ToLower(asStr(data["type"]))
 			if role == "" {
@@ -129,12 +262,21 @@ func normalizeOneMessage(i int, raw any, defaultSrc string) map[string]any {
 			if m["additional_kwargs"] == nil {
 				m["additional_kwargs"] = data["additional_kwargs"]
 			}
+			if m["tool_call_id"] == nil {
+				m["tool_call_id"] = data["tool_call_id"]
+			}
+			if m["name"] == nil {
+				m["name"] = data["name"]
+			}
 			src = "langchain"
 		}
 		if kw, ok := m["kwargs"].(map[string]any); ok {
-			role = strings.ToLower(asStr(kw["type"]))
-			if role == "" {
-				role = strings.ToLower(asStr(kw["role"]))
+			r := strings.ToLower(asStr(kw["type"]))
+			if r == "" {
+				r = strings.ToLower(asStr(kw["role"]))
+			}
+			if r != "" {
+				role = r
 			}
 			if m["content"] == nil {
 				m["content"] = kw["content"]
@@ -142,23 +284,25 @@ func normalizeOneMessage(i int, raw any, defaultSrc string) map[string]any {
 			if m["tool_calls"] == nil {
 				m["tool_calls"] = kw["tool_calls"]
 			}
+			if m["additional_kwargs"] == nil {
+				m["additional_kwargs"] = kw["additional_kwargs"]
+			}
+			if m["tool_call_id"] == nil {
+				m["tool_call_id"] = kw["tool_call_id"]
+			}
+			if m["name"] == nil {
+				m["name"] = kw["name"]
+			}
 			src = "langchain"
 		}
-	}
-	switch role {
-	case "human", "user":
-		role = "user"
-	case "ai", "assistant":
-		role = "assistant"
-	case "system":
-		role = "system"
-	case "tool", "function":
-		role = "tool"
-	default:
-		if role == "" {
-			role = "assistant"
+		if role == "" || role == "constructor" {
+			if r := roleFromLCID(m["id"]); r != "" {
+				role = r
+			}
 		}
 	}
+
+	role = mapMessageRole(role)
 	name := m["name"]
 	if name == nil || asStr(name) == "" {
 		name = nil
@@ -181,9 +325,124 @@ func normalizeOneMessage(i int, raw any, defaultSrc string) map[string]any {
 	if looksAnthropic(m) {
 		src = "anthropic"
 	}
+	id := fmt.Sprintf("m%d", i)
+	if rid := extractMessageID(m); rid != "" {
+		id = rid
+	}
 	return map[string]any{
-		"id": fmt.Sprintf("m%d", i), "role": role, "name": name,
+		"id": id, "role": role, "name": name,
 		"content": content, "tool_calls": toolCalls, "tool_call_id": toolCallID, "source": src,
+	}
+}
+
+func isLCSerialized(m map[string]any) bool {
+	if _, ok := m["lc"]; ok {
+		return true
+	}
+	return strings.EqualFold(asStr(m["type"]), "constructor")
+}
+
+// unwrapLCMessage lifts kwargs/data fields onto m and derives role from the LC id path
+// (e.g. …/AIMessage) and/or kwargs.type before the constructor marker can leak as role.
+func unwrapLCMessage(m map[string]any) {
+	lcIDPath := m["id"] // preserve class path before kwargs.id overwrites it
+	var body map[string]any
+	if kw, ok := m["kwargs"].(map[string]any); ok {
+		body = kw
+	} else if data, ok := m["data"].(map[string]any); ok {
+		body = data
+	}
+	if body != nil {
+		if v, ok := body["content"]; ok {
+			m["content"] = v
+		}
+		if v, ok := body["tool_calls"]; ok {
+			m["tool_calls"] = v
+		}
+		if v, ok := body["additional_kwargs"]; ok {
+			m["additional_kwargs"] = v
+		}
+		if v, ok := body["tool_call_id"]; ok {
+			m["tool_call_id"] = v
+		}
+		if v, ok := body["name"]; ok {
+			m["name"] = v
+		}
+		if v, ok := body["id"]; ok {
+			m["id"] = v // runtime message id (string); class path kept in lcIDPath
+		}
+		if r := asStr(body["type"]); r != "" && !strings.EqualFold(r, "constructor") {
+			m["role"] = r
+		} else if r := asStr(body["role"]); r != "" {
+			m["role"] = r
+		}
+	}
+	if r := roleFromLCID(lcIDPath); r != "" {
+		// Prefer class-derived role when body type is missing or still constructor-like.
+		cur := strings.ToLower(asStr(m["role"]))
+		if cur == "" || cur == "constructor" {
+			m["role"] = r
+		} else if cur == "ai" || cur == "human" || cur == "system" || cur == "tool" || cur == "function" {
+			// keep short LC type aliases; mapMessageRole will normalize
+		} else {
+			m["role"] = r
+		}
+	}
+	if strings.EqualFold(asStr(m["type"]), "constructor") {
+		delete(m, "type")
+	}
+}
+
+func roleFromLCID(id any) string {
+	switch t := id.(type) {
+	case []any:
+		if len(t) == 0 {
+			return ""
+		}
+		last := asStr(t[len(t)-1])
+		return mapMessageRole(last)
+	case []string:
+		if len(t) == 0 {
+			return ""
+		}
+		return mapMessageRole(t[len(t)-1])
+	case string:
+		// Sometimes dotted or bare class name
+		if strings.Contains(t, ".") {
+			parts := strings.Split(t, ".")
+			return mapMessageRole(parts[len(parts)-1])
+		}
+		if strings.HasSuffix(t, "Message") || strings.HasSuffix(t, "MessageChunk") {
+			return mapMessageRole(t)
+		}
+	}
+	return ""
+}
+
+func mapMessageRole(role string) string {
+	r := strings.ToLower(strings.TrimSpace(role))
+	switch r {
+	case "human", "user", "humanmessage":
+		return "user"
+	case "ai", "assistant", "aimessage", "aimessagechunk", "chatmessagechunk":
+		return "assistant"
+	case "system", "systemmessage", "systemmessagechunk":
+		return "system"
+	case "tool", "function", "toolmessage", "functionmessage", "toolmessagechunk":
+		return "tool"
+	case "chatmessage":
+		// generic chat — leave as assistant unless caller set role
+		return "assistant"
+	case "constructor", "":
+		return "assistant"
+	default:
+		// Strip common suffixes for future LC classes
+		for _, suf := range []string{"messagechunk", "message"} {
+			if strings.HasSuffix(r, suf) && len(r) > len(suf) {
+				return mapMessageRole(strings.TrimSuffix(r, suf))
+			}
+		}
+		return r
 	}
 }
 
