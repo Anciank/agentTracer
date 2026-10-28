@@ -148,6 +148,7 @@ export function makeManyTraces(n: number): TraceSummary[] {
   return out;
 }
 
+// dotted_order segments: <YYYYMMDDTHHMMSSffffffZ><full dashed uuid> (LangSmith SDK form)
 export const SUMMARIES: Record<string, TraceSummaryResponse> = {
   [TRACE_A]: {
     trace_id: TRACE_A,
@@ -166,7 +167,7 @@ export const SUMMARIES: Record<string, TraceSummaryResponse> = {
         tokens: T(6000, 1152),
         model: "gpt-4o-mini",
         tags: ["prod"],
-        dotted_order: "20261027T150405123000Z" + rootId.slice(0, 8),
+        dotted_order: "20261027T150405123000Z" + rootId,
         status: "error",
         has_error: true,
       }),
@@ -183,7 +184,7 @@ export const SUMMARIES: Record<string, TraceSummaryResponse> = {
         tokens: T(3200, 400),
         model: "gpt-4o-mini",
         dotted_order:
-          "20261027T150405123000Z" + rootId.slice(0, 8) + ".20261027T150405323000Z" + llmId.slice(0, 8),
+          "20261027T150405123000Z" + rootId + ".20261027T150405323000Z" + llmId,
         attachment_count: 0,
       }),
       span({
@@ -198,7 +199,7 @@ export const SUMMARIES: Record<string, TraceSummaryResponse> = {
         self_time_ms: 1800,
         tokens: T(0, 0),
         dotted_order:
-          "20261027T150405123000Z" + rootId.slice(0, 8) + ".20261027T150409623000Z" + toolId.slice(0, 8),
+          "20261027T150405123000Z" + rootId + ".20261027T150409623000Z" + toolId,
       }),
       span({
         id: llm2Id,
@@ -213,7 +214,7 @@ export const SUMMARIES: Record<string, TraceSummaryResponse> = {
         tokens: T(2800, 752),
         model: "gpt-4o-mini",
         dotted_order:
-          "20261027T150405123000Z" + rootId.slice(0, 8) + ".20261027T150411623000Z" + llm2Id.slice(0, 8),
+          "20261027T150405123000Z" + rootId + ".20261027T150411623000Z" + llm2Id,
       }),
       span({
         id: errId,
@@ -229,7 +230,7 @@ export const SUMMARIES: Record<string, TraceSummaryResponse> = {
         has_error: true,
         tokens: T(0, 0),
         dotted_order:
-          "20261027T150405123000Z" + rootId.slice(0, 8) + ".20261027T150417123000Z" + errId.slice(0, 8),
+          "20261027T150405123000Z" + rootId + ".20261027T150417123000Z" + errId,
       }),
     ],
   },
@@ -250,7 +251,7 @@ export const SUMMARIES: Record<string, TraceSummaryResponse> = {
         end_time: "2026-10-27T14:00:12.500Z",
         tokens: T(2200, 800),
         model: "gpt-4o",
-        dotted_order: "20261027T140000000000Zb0000000",
+        dotted_order: "20261027T140000000000Zb0000000-0000-0000-0000-000000000001",
       }),
       span({
         id: "b0000000-0000-0000-0000-000000000002",
@@ -265,7 +266,7 @@ export const SUMMARIES: Record<string, TraceSummaryResponse> = {
         end_time: "2026-10-27T14:00:09.100Z",
         tokens: T(2200, 800),
         model: "gpt-4o",
-        dotted_order: "20261027T140000000000Zb0000000.20261027T140000100000Zb0000001",
+        dotted_order: "20261027T140000000000Zb0000000-0000-0000-0000-000000000001.20261027T140000100000Zb0000000-0000-0000-0000-000000000002",
       }),
       span({
         id: "b0000000-0000-0000-0000-000000000003",
@@ -278,7 +279,7 @@ export const SUMMARIES: Record<string, TraceSummaryResponse> = {
         self_time_ms: 3000,
         start_time: "2026-10-27T14:00:09.200Z",
         end_time: "2026-10-27T14:00:12.200Z",
-        dotted_order: "20261027T140000000000Zb0000000.20261027T140009200000Zb0000002",
+        dotted_order: "20261027T140000000000Zb0000000-0000-0000-0000-000000000001.20261027T140009200000Zb0000000-0000-0000-0000-000000000003",
       }),
     ],
   },
@@ -299,7 +300,7 @@ export const SUMMARIES: Record<string, TraceSummaryResponse> = {
         end_time: null,
         status: "running",
         tokens: T(100, 0),
-        dotted_order: "20261028T060000000000Zc0000000",
+        dotted_order: "20261028T060000000000Zc0000000-0000-0000-0000-000000000001",
       }),
       span({
         id: "c0000000-0000-0000-0000-000000000002",
@@ -315,7 +316,7 @@ export const SUMMARIES: Record<string, TraceSummaryResponse> = {
         status: "running",
         tokens: T(100, 0),
         model: "gpt-4o-mini",
-        dotted_order: "20261028T060000000000Zc0000000.20261028T060000050000Zc0000001",
+        dotted_order: "20261028T060000000000Zc0000000-0000-0000-0000-000000000001.20261028T060000050000Zc0000000-0000-0000-0000-000000000002",
       }),
     ],
   },
@@ -339,7 +340,7 @@ export const RUNS: Record<string, RunDetail> = {
     model: "gpt-4o-mini",
     tags: [],
     dotted_order:
-      "20261027T150405123000Z" + rootId.slice(0, 8) + ".20261027T150405323000Z" + llmId.slice(0, 8),
+      "20261027T150405123000Z" + rootId + ".20261027T150405323000Z" + llmId,
     inputs: {
       messages: [
         { role: "system", content: "You are a support agent." },
@@ -390,7 +391,7 @@ export const RUNS: Record<string, RunDetail> = {
     model: null,
     tags: [],
     dotted_order:
-      "20261027T150405123000Z" + rootId.slice(0, 8) + ".20261027T150409623000Z" + toolId.slice(0, 8),
+      "20261027T150405123000Z" + rootId + ".20261027T150409623000Z" + toolId,
     inputs: { query: "order late SLA" },
     outputs: { hits: [{ title: "Shipping SLA", snippet: "Orders ship in 2–3 days." }] },
     extra: {},
@@ -425,7 +426,7 @@ export const RUNS: Record<string, RunDetail> = {
     model: "gpt-4o-mini",
     tags: [],
     dotted_order:
-      "20261027T150405123000Z" + rootId.slice(0, 8) + ".20261027T150411623000Z" + llm2Id.slice(0, 8),
+      "20261027T150405123000Z" + rootId + ".20261027T150411623000Z" + llm2Id,
     inputs: {
       messages: [
         { role: "system", content: "You are a support agent." },
@@ -476,7 +477,7 @@ export const RUNS: Record<string, RunDetail> = {
     model: null,
     tags: [],
     dotted_order:
-      "20261027T150405123000Z" + rootId.slice(0, 8) + ".20261027T150417123000Z" + errId.slice(0, 8),
+      "20261027T150405123000Z" + rootId + ".20261027T150417123000Z" + errId,
     inputs: { ticket_id: "T-991" },
     outputs: {},
     extra: {},
@@ -503,7 +504,7 @@ export const RUNS: Record<string, RunDetail> = {
     tokens: T(6000, 1152),
     model: "gpt-4o-mini",
     tags: ["prod"],
-    dotted_order: "20261027T150405123000Z" + rootId.slice(0, 8),
+    dotted_order: "20261027T150405123000Z" + rootId,
     inputs: { input: "Why is my order late?" },
     outputs: {
       _truncated: true,

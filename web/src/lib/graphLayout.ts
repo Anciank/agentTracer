@@ -1,9 +1,27 @@
 /**
  * Deterministic layered DAG layout for the agent map (no dagre/elk dependency).
+ * Top-to-bottom layering: layers advance downward; siblings share a row.
  * Forward edges drive layers; loop/back-edges are drawn as arcs and do not
  * create extra layers.
+ *
+ * Fail styling helpers (used by AgentMap):
+ *   - failing (strong): error_count > 0 && error_rate >= FAIL_ERROR_RATE (5%)
+ *   - warn (subtle):    error_count > 0 && error_rate < FAIL_ERROR_RATE
+ * Nodes with any error_count stay in the graph (server/top-N keeps them);
+ * only the visual flag is thresholded so low rates do not paint the map red.
  */
 import type { EdgeStats, NodeStats } from "../api/types";
+
+/** Minimum error_rate for the strong "failing" visual (red stroke + badge). */
+export const FAIL_ERROR_RATE = 0.05;
+
+export function isFailingNode(n: Pick<NodeStats, "error_count" | "error_rate">): boolean {
+  return n.error_count > 0 && n.error_rate >= FAIL_ERROR_RATE;
+}
+
+export function isWarnNode(n: Pick<NodeStats, "error_count" | "error_rate">): boolean {
+  return n.error_count > 0 && n.error_rate < FAIL_ERROR_RATE;
+}
 
 export type LayoutNode = {
   key: string;
@@ -41,6 +59,8 @@ export type LayoutOptions = {
   gapY?: number;
   pad?: number;
   expandOther?: boolean;
+  /** Max siblings per layer row before wrapping to the next sub-row. */
+  wrapCols?: number;
 };
 
 function isBackOrLoop(
@@ -59,20 +79,12 @@ function isBackOrLoop(
 /** Longest-path layering on the forward DAG (ignoring loop flags + self). */
 function assignLayers(keys: string[], edges: EdgeStats[]): Map<string, number> {
   const keySet = new Set(keys);
-  const succ = new Map<string, string[]>();
-  const predCount = new Map<string, number>();
-  for (const k of keys) {
-    succ.set(k, []);
-    predCount.set(k, 0);
-  }
   const forward: { from: string; to: string }[] = [];
   for (const e of edges) {
     if (!keySet.has(e.from) || !keySet.has(e.to)) continue;
     if (e.loop || e.from === e.to) continue;
     forward.push({ from: e.from, to: e.to });
   }
-  // First pass: ignore potential back-edges by building a greedy topo on count order.
-  // Use Kahn; leftover cyclic edges are skipped for layering.
   const out = new Map<string, Set<string>>();
   const indeg = new Map<string, number>();
   for (const k of keys) {
@@ -102,7 +114,6 @@ function assignLayers(keys: string[], edges: EdgeStats[]): Map<string, number> {
     }
     q.sort();
   }
-  // Nodes in cycles / unreachable: place after max or at 0
   let maxL = 0;
   for (const v of layer.values()) maxL = Math.max(maxL, v);
   for (const k of keys) {
@@ -114,6 +125,7 @@ function assignLayers(keys: string[], edges: EdgeStats[]): Map<string, number> {
   return layer;
 }
 
+/** Top→bottom edge path (source bottom → target top). */
 function edgePath(
   a: LayoutNode,
   b: LayoutNode,
@@ -127,21 +139,21 @@ function edgePath(
     const d = `M ${x} ${y} C ${x + r} ${y - r}, ${x + r} ${y + r}, ${x} ${y}`;
     return { d, labelX: x + r + 4, labelY: y };
   }
-  const x1 = a.x + a.w;
-  const y1 = a.y + a.h / 2;
-  const x2 = b.x;
-  const y2 = b.y + b.h / 2;
-  const dx = Math.max(40, (x2 - x1) / 2);
-  const bow = (slot % 5) * 12 * (slot % 2 === 0 ? 1 : -1);
-  const cx1 = x1 + dx;
-  const cy1 = y1 + bow;
-  const cx2 = x2 - dx;
-  const cy2 = y2 + bow;
+  const x1 = a.x + a.w / 2;
+  const y1 = a.y + a.h;
+  const x2 = b.x + b.w / 2;
+  const y2 = b.y;
+  const dy = Math.max(28, (y2 - y1) / 2);
+  const bow = (slot % 5) * 14 * (slot % 2 === 0 ? 1 : -1);
+  const cx1 = x1 + bow;
+  const cy1 = y1 + dy;
+  const cx2 = x2 + bow;
+  const cy2 = y2 - dy;
   const d = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
   return {
     d,
-    labelX: (x1 + x2) / 2,
-    labelY: (y1 + y2) / 2 + bow * 0.5 - 6,
+    labelX: (x1 + x2) / 2 + bow * 0.5,
+    labelY: (y1 + y2) / 2 - 4,
   };
 }
 
@@ -153,9 +165,10 @@ export function layoutGraph(
 ): GraphLayout {
   const nodeW = opts.nodeW ?? 148;
   const nodeH = opts.nodeH ?? 56;
-  const gapX = opts.gapX ?? 80;
-  const gapY = opts.gapY ?? 28;
+  const gapX = opts.gapX ?? 28;
+  const gapY = opts.gapY ?? 72;
   const pad = opts.pad ?? 32;
+  const wrapCols = opts.wrapCols ?? 6;
 
   const nodes: NodeStats[] = nodesIn.slice();
   if (other) {
@@ -181,7 +194,6 @@ export function layoutGraph(
     }
   }
 
-  // Deterministic order seed
   nodes.sort(
     (a, b) =>
       b.error_count - a.error_count || b.count - a.count || a.key.localeCompare(b.key)
@@ -205,12 +217,21 @@ export function layoutGraph(
 
   const layers = [...byLayer.keys()].sort((a, b) => a - b);
   const layoutNodes: LayoutNode[] = [];
+  let maxX = 0;
   let maxY = 0;
+  let rowCursor = 0; // cumulative sub-rows for wrap across layers
   for (const L of layers) {
     const col = byLayer.get(L)!;
+    const subRows = Math.max(1, Math.ceil(col.length / wrapCols));
     col.forEach((n, i) => {
-      const x = pad + L * (nodeW + gapX);
-      const y = pad + i * (nodeH + gapY);
+      const localRow = Math.floor(i / wrapCols);
+      const localCol = i % wrapCols;
+      const rowNodes = Math.min(wrapCols, col.length - localRow * wrapCols);
+      // Center the row's nodes
+      const rowWidth = rowNodes * nodeW + (rowNodes - 1) * gapX;
+      const x0 = pad;
+      const x = x0 + localCol * (nodeW + gapX);
+      const y = pad + (rowCursor + localRow) * (nodeH + gapY);
       layoutNodes.push({
         key: n.key,
         label: n.label,
@@ -221,15 +242,16 @@ export function layoutGraph(
         stats: n,
         isOther: n.kind === "other",
       });
+      maxX = Math.max(maxX, x + nodeW);
       maxY = Math.max(maxY, y + nodeH);
+      void rowWidth;
     });
+    rowCursor += subRows;
   }
   const byKey = new Map(layoutNodes.map((n) => [n.key, n]));
-  const maxL = layers.length ? layers[layers.length - 1] : 0;
-  const width = pad * 2 + (maxL + 1) * nodeW + maxL * gapX;
+  const width = maxX + pad;
   const height = maxY + pad;
 
-  // Slot counters for parallel edges / loops
   const slotOf = new Map<string, number>();
   const layoutEdges: LayoutEdge[] = [];
   const sortedEdges = edgesIn

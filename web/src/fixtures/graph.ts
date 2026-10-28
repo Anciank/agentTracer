@@ -49,6 +49,8 @@ function edge(
 
 const SUPPORT_ID = "11111111-1111-1111-1111-111111111111";
 const RESEARCH_ID = "22222222-2222-2222-2222-222222222222";
+/** Max-size layout/render fixture (40 nodes). */
+export const LARGE_ID = "33333333-3333-3333-3333-333333333333";
 
 const SUPPORT_NODES: NodeStats[] = [
   node({ key: "supervisor", label: "supervisor", count: 4200, error_count: 40, p50_ms: 80, p95_ms: 420, tokens: T(400000, 80000) }),
@@ -196,6 +198,7 @@ export function researchGraph(window: GraphWindow = "24h"): GraphResponse {
 
 export function getGraphFixture(projectId: string, window: GraphWindow = "24h"): GraphResponse {
   if (projectId === RESEARCH_ID || projectId === "research") return researchGraph(window);
+  if (projectId === LARGE_ID || projectId === "large") return makeLargeGraph(40, 8);
   return supportGraph(window);
 }
 

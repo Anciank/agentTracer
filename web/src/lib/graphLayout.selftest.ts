@@ -2,7 +2,7 @@
  * Perf + correctness self-test for agent map layout.
  * Run: npx tsx src/lib/graphLayout.selftest.ts
  */
-import { layoutGraph } from "./graphLayout";
+import { FAIL_ERROR_RATE, isFailingNode, isWarnNode, layoutGraph } from "./graphLayout";
 import { makeLargeGraph, supportGraph } from "../fixtures/graph";
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -17,6 +17,13 @@ function main() {
   assert(lay.nodes.length === g.nodes.length + 1, "other fold present");
   assert(lay.nodes.some((n) => n.isOther), "other node flagged");
   assert(lay.nodes.every((n) => Number.isFinite(n.x) && Number.isFinite(n.y)), "finite coords");
+  // top-to-bottom: avoid ultra-wide horizontal ribbon for the support DAG
+  assert(lay.height >= lay.width * 0.35 || lay.nodes.length < 5, "TB aspect (not ultra-wide)");
+  const tools = lay.nodes.find((n) => n.key === "tools")!;
+  assert(isFailingNode(tools.stats), "tools rate >= fail threshold");
+  const retrieve = lay.nodes.find((n) => n.key === "retrieve");
+  if (retrieve) assert(isWarnNode(retrieve.stats) || retrieve.stats.error_count === 0 || retrieve.stats.error_rate >= FAIL_ERROR_RATE, "retrieve warn-or-ok");
+
   // failing nodes always in layout (tools, escalate have errors)
   assert(lay.nodes.some((n) => n.key === "tools" && n.stats.error_count > 0), "tools visible");
   assert(lay.nodes.some((n) => n.key === "escalate"), "escalate visible");
@@ -58,6 +65,7 @@ function main() {
       path_bytes: pathBytes,
       renderish_ms: Number(renderish.toFixed(3)),
       budget_ms: 1000,
+      fail_error_rate: FAIL_ERROR_RATE,
     })
   );
 }

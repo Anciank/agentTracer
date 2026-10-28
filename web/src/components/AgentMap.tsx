@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EdgeStats, GraphResponse, NodeStats } from "../api/types";
-import { layoutGraph, type LayoutNode } from "../lib/graphLayout";
+import {
+  FAIL_ERROR_RATE,
+  isFailingNode,
+  isWarnNode,
+  layoutGraph,
+  type LayoutNode,
+} from "../lib/graphLayout";
 import { fmtDurMs, fmtInt, fmtPct } from "../lib/format";
+
+/** Fit never zooms out below this so 12px labels stay ~readable (~8.4px). Pan/scroll for the rest. */
+const MIN_FIT_ZOOM = 0.7;
 
 type Props = {
   graph: GraphResponse;
@@ -17,14 +26,15 @@ type Props = {
 
 function nodeFill(n: NodeStats): string {
   if (n.kind === "other") return "var(--chip)";
-  if (n.error_rate >= 0.2) return "var(--error-bg)";
-  if (n.error_rate >= 0.05) return "color-mix(in srgb, var(--error-bg) 55%, var(--raise))";
+  if (isFailingNode(n)) return "var(--error-bg)";
+  if (isWarnNode(n)) return "color-mix(in srgb, var(--warn, #b45309) 18%, var(--raise))";
   return "var(--raise)";
 }
 
 function nodeStroke(n: NodeStats, highlight: boolean): string {
   if (highlight) return "var(--focus)";
-  if (n.error_count > 0) return "var(--error)";
+  if (isFailingNode(n)) return "var(--error)";
+  if (isWarnNode(n)) return "var(--warn, #b45309)";
   if (n.kind === "other") return "var(--muted)";
   return "var(--border)";
 }
@@ -37,6 +47,18 @@ function edgeLabel(e: EdgeStats): string {
   }
   if (e.loop) return `${base} ×N`;
   return base;
+}
+
+declare global {
+  interface Window {
+    __mapPerf?: {
+      layout_ms: number;
+      paint_ms: number;
+      total_ms: number;
+      nodes: number;
+      edges: number;
+    };
+  }
 }
 
 export function AgentMap({
@@ -55,6 +77,7 @@ export function AgentMap({
   const [zoom, setZoom] = useState(1);
   const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
   const [hover, setHover] = useState<string | null>(null);
+  const layoutStart = useRef(0);
 
   const edges = useMemo(() => {
     const list = showHiddenEdges ? [...graph.edges, ...graph.edges_hidden] : graph.edges.slice();
@@ -62,10 +85,32 @@ export function AgentMap({
     return list;
   }, [graph, showHiddenEdges]);
 
-  const layout = useMemo(
-    () => layoutGraph(graph.nodes, graph.other, edges, { expandOther }),
-    [graph.nodes, graph.other, edges, expandOther]
-  );
+  const layout = useMemo(() => {
+    layoutStart.current = performance.now();
+    return layoutGraph(graph.nodes, graph.other, edges, { expandOther });
+  }, [graph.nodes, graph.other, edges, expandOther]);
+
+  const layoutMs = useMemo(() => {
+    return performance.now() - layoutStart.current;
+  }, [layout]);
+
+  useEffect(() => {
+    const t0 = performance.now();
+    // Two rAFs: after React commit + browser paint of the SVG.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const paint_ms = performance.now() - t0;
+        const total_ms = layoutMs + paint_ms;
+        window.__mapPerf = {
+          layout_ms: Number(layoutMs.toFixed(3)),
+          paint_ms: Number(paint_ms.toFixed(3)),
+          total_ms: Number(total_ms.toFixed(3)),
+          nodes: layout.nodes.length,
+          edges: layout.edges.length,
+        };
+      });
+    });
+  }, [layout, layoutMs]);
 
   const matchKey = useMemo(() => {
     const q = findQuery.trim().toLowerCase();
@@ -84,10 +129,11 @@ export function AgentMap({
     const vh = el.clientHeight || 500;
     const zx = (vw - 32) / Math.max(width, 1);
     const zy = (vh - 32) / Math.max(height, 1);
-    const z = Math.max(0.25, Math.min(1.5, Math.min(zx, zy)));
+    // Clamp so labels stay readable; pan/scroll for overflow.
+    const z = Math.max(MIN_FIT_ZOOM, Math.min(1.5, Math.min(zx, zy)));
     setZoom(z);
     setPan({
-      x: (vw - width * z) / 2,
+      x: Math.max(16, (vw - width * z) / 2),
       y: Math.max(16, (vh - height * z) / 2),
     });
   }, [layout]);
@@ -119,7 +165,6 @@ export function AgentMap({
     const my = e.clientY - rect.top;
     const factor = e.deltaY > 0 ? 0.9 : 1.1;
     const next = Math.max(0.2, Math.min(3, zoom * factor));
-    // zoom toward cursor
     const wx = (mx - pan.x) / zoom;
     const wy = (my - pan.y) / zoom;
     setZoom(next);
@@ -145,11 +190,15 @@ export function AgentMap({
   const renderNode = (n: LayoutNode) => {
     const highlight = matchKey === n.key || hover === n.key;
     const s = n.stats;
-    const strokeW = s.error_count > 0 ? 2.5 : highlight ? 2 : 1;
+    const failing = isFailingNode(s);
+    const warn = isWarnNode(s);
+    const strokeW = failing ? 2.5 : warn || highlight ? 2 : 1;
     return (
       <g
         key={n.key}
         data-node={n.key}
+        data-failing={failing ? "1" : undefined}
+        data-warn={warn ? "1" : undefined}
         transform={`translate(${n.x},${n.y})`}
         style={{ cursor: "pointer" }}
         onMouseEnter={() => setHover(n.key)}
@@ -179,15 +228,18 @@ export function AgentMap({
         <text x={10} y={48} className="map-meta">
           p95 {fmtDurMs(s.p95_ms)} · {fmtInt(s.tokens.total)} tok
         </text>
-        {s.error_count > 0 && !n.isOther && (
+        {failing && !n.isOther && (
           <circle cx={n.w - 10} cy={10} r={5} fill="var(--error)" />
+        )}
+        {warn && !n.isOther && (
+          <circle cx={n.w - 10} cy={10} r={4} fill="var(--warn, #b45309)" opacity={0.85} />
         )}
       </g>
     );
   };
 
   return (
-    <div className="map-shell">
+    <div className="map-shell" data-fail-threshold={FAIL_ERROR_RATE}>
       <div className="map-toolbar">
         <input
           ref={findInputRef as React.RefObject<HTMLInputElement>}
@@ -202,6 +254,7 @@ export function AgentMap({
         </button>
         <span className="map-hint">
           {graph.trace_count.toLocaleString()} traces · {layout.nodes.length} nodes · wheel zoom · drag pan
+          {" · "}fail ≥{Math.round(FAIL_ERROR_RATE * 100)}% err
         </span>
       </div>
       <div
