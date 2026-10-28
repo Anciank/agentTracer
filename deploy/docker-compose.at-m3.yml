@@ -1,0 +1,21 @@
+# Override for isolated M3 smoke on port 1985.
+# Usage: docker compose -p at-m3 -f docker-compose.yml -f deploy/docker-compose.at-m3.yml up -d --build
+# Tear down: docker compose -p at-m3 -f docker-compose.yml -f deploy/docker-compose.at-m3.yml down -v
+services:
+  postgres:
+    container_name: at-m3-postgres
+    mem_limit: 512m
+  minio:
+    container_name: at-m3-minio
+    image: docker.io/pgsty/silo:RELEASE.2026-10-26T00-00-00Z
+    mem_limit: 256m
+  app:
+    container_name: at-m3-app
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.prebuilt
+    ports: !override
+      - "1985:1984"
+    mem_limit: 512m
+    environment:
+      GOMEMLIMIT: 400MiB
