@@ -224,3 +224,141 @@ func TestParseWindow(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+// TestUIGraphFanoutLatencyAndUnended: parallel same-key visits contribute
+// latency; a visit without end_time is counted but excluded from p50/p95;
+// sub-millisecond finished visits still yield non-null latency stats.
+func TestUIGraphFanoutLatencyAndUnended(t *testing.T) {
+	pool := testPool(t)
+	st := New(pool, NewMemoryBlob())
+	ctx := context.Background()
+	proj := "m35-fanout-lat"
+	now := time.Now().UTC()
+	root := uuid.NewString()
+	rootStart := now.Add(-time.Minute)
+
+	if err := st.UpsertRun(ctx, map[string]any{
+		"id": root, "trace_id": root, "name": "LangGraph", "run_type": "chain",
+		"session_name": proj, "start_time": rootStart.Format(time.RFC3339Nano),
+	}, "post"); err != nil {
+		t.Fatal(err)
+	}
+
+	// plan: finished but sub-millisecond (start==end) — must still count as latency
+	planID := uuid.NewString()
+	planT := rootStart.Add(10 * time.Millisecond)
+	if err := st.UpsertRun(ctx, map[string]any{
+		"id": planID, "trace_id": root, "parent_run_id": root,
+		"name": "plan", "run_type": "chain", "session_name": proj,
+		"start_time": planT.Format(time.RFC3339Nano),
+		"end_time":   planT.Format(time.RFC3339Nano), // 0ms
+		"extra":      map[string]any{"metadata": map[string]any{"langgraph_node": "plan", "langgraph_step": 1}},
+	}, "post"); err != nil {
+		t.Fatal(err)
+	}
+
+	// worker fan-out: three parallel finished instances with distinct latencies
+	workerLats := []time.Duration{100 * time.Millisecond, 200 * time.Millisecond, 300 * time.Millisecond}
+	for i, d := range workerLats {
+		id := uuid.NewString()
+		stt := rootStart.Add(time.Duration(20+i) * time.Millisecond)
+		if err := st.UpsertRun(ctx, map[string]any{
+			"id": id, "trace_id": root, "parent_run_id": root,
+			"name": "worker", "run_type": "chain", "session_name": proj,
+			"start_time": stt.Format(time.RFC3339Nano),
+			"end_time":   stt.Add(d).Format(time.RFC3339Nano),
+			"extra": map[string]any{"metadata": map[string]any{
+				"langgraph_node": "worker", "langgraph_step": 2,
+			}},
+		}, "post"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// retrieve: started but never ended — counted, no latency contribution
+	retID := uuid.NewString()
+	if err := st.UpsertRun(ctx, map[string]any{
+		"id": retID, "trace_id": root, "parent_run_id": root,
+		"name": "retrieve", "run_type": "chain", "session_name": proj,
+		"start_time": rootStart.Add(50 * time.Millisecond).Format(time.RFC3339Nano),
+		"extra":      map[string]any{"metadata": map[string]any{"langgraph_node": "retrieve", "langgraph_step": 3}},
+	}, "post"); err != nil {
+		t.Fatal(err)
+	}
+
+	// End root → cache write
+	if err := st.UpsertRun(ctx, map[string]any{
+		"id": root, "end_time": now.Format(time.RFC3339Nano), "status": "success",
+	}, "patch"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Cache arrays aligned: lat sentinel -1 for unended retrieve
+	var keys []string
+	var lats []float64
+	if err := pool.QueryRow(ctx,
+		`SELECT node_keys, node_lat_ms FROM trace_graph_cache WHERE trace_id=$1`,
+		uuid.MustParse(root),
+	).Scan(&keys, &lats); err != nil {
+		t.Fatalf("cache: %v", err)
+	}
+	if len(keys) != len(lats) {
+		t.Fatalf("misaligned keys=%d lats=%d", len(keys), len(lats))
+	}
+	foundPlan, foundWorker, foundRet := 0, 0, 0
+	for i, k := range keys {
+		switch k {
+		case "plan":
+			foundPlan++
+			if lats[i] < 0 {
+				t.Fatalf("plan finished 0ms should be >=0, got %v", lats[i])
+			}
+		case "worker":
+			foundWorker++
+			if lats[i] < 0 {
+				t.Fatalf("worker should be finished, lat=%v", lats[i])
+			}
+		case "retrieve":
+			foundRet++
+			if lats[i] != latMissing {
+				t.Fatalf("retrieve unended want %v got %v", latMissing, lats[i])
+			}
+		}
+	}
+	if foundPlan != 1 || foundWorker != 3 || foundRet != 1 {
+		t.Fatalf("keys=%v plan=%d worker=%d retrieve=%d", keys, foundPlan, foundWorker, foundRet)
+	}
+
+	from := now.Add(-time.Hour)
+	to := now.Add(time.Hour)
+	g, err := st.UIGraph(ctx, GraphOpts{Project: proj, From: &from, To: &to, TopN: 15, MinEdgeShare: 0.01})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byKey := map[string]map[string]any{}
+	for _, n := range g["nodes"].([]map[string]any) {
+		byKey[n["key"].(string)] = n
+	}
+	plan := byKey["plan"]
+	if plan == nil || plan["p50_ms"] == nil || plan["p95_ms"] == nil {
+		t.Fatalf("plan (0ms finished) want non-null p50/p95, got %v", plan)
+	}
+	worker := byKey["worker"]
+	if worker == nil || asInt(worker["count"]) != 3 {
+		t.Fatalf("worker count: %v", worker)
+	}
+	if worker["p50_ms"] == nil || worker["p95_ms"] == nil {
+		t.Fatalf("worker fan-out want non-null latency, got %v", worker)
+	}
+	// p50 of 100,200,300 ≈ 200
+	if asInt(worker["p50_ms"]) < 100 || asInt(worker["p50_ms"]) > 300 {
+		t.Fatalf("worker p50 unexpected: %v", worker["p50_ms"])
+	}
+	ret := byKey["retrieve"]
+	if ret == nil || asInt(ret["count"]) != 1 {
+		t.Fatalf("retrieve count: %v", ret)
+	}
+	if ret["p50_ms"] != nil || ret["p95_ms"] != nil {
+		t.Fatalf("retrieve unended want null latency, got %v", ret)
+	}
+}

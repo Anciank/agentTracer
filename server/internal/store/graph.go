@@ -16,6 +16,11 @@ import (
 // ErrProjectNotFound is returned when a UI project id/name does not exist.
 var ErrProjectNotFound = errors.New("project not found")
 
+// latMissing is stored in node_lat_ms for visits with no end_time.
+// Finished visits use duration in milliseconds (>=0), including true 0ms.
+// /graph must not treat 0 as "missing" — that dropped sub-1ms LangGraph nodes.
+const latMissing = -1.0
+
 // GraphOpts controls GET .../graph aggregation.
 type GraphOpts struct {
 	Project      string
@@ -215,7 +220,7 @@ type visitKey struct {
 	key          string
 	fromLG       bool
 	errored      bool
-	latMs        float64
+	latMs        float64 // >=0 finished (ms); latMissing (-1) if no end_time
 	in, out, tot int
 	start        *time.Time
 }
@@ -272,8 +277,9 @@ func (s *Store) loadTraceVisits(ctx context.Context, traceID uuid.UUID) ([]visit
 		if r.errStr != nil && *r.errStr != "" {
 			vk.errored = true
 		}
+		vk.latMs = latMissing
 		if r.start != nil && r.end != nil {
-			vk.latMs = float64(r.end.Sub(*r.start).Milliseconds())
+			vk.latMs = float64(r.end.Sub(*r.start)) / float64(time.Millisecond)
 		}
 		out = append(out, vk)
 	}
@@ -340,8 +346,9 @@ func (s *Store) loadVisitsForTraces(ctx context.Context, traceIDs []uuid.UUID) (
 		if r.errStr != nil && *r.errStr != "" {
 			vk.errored = true
 		}
+		vk.latMs = latMissing
 		if r.start != nil && r.end != nil {
-			vk.latMs = float64(r.end.Sub(*r.start).Milliseconds())
+			vk.latMs = float64(r.end.Sub(*r.start)) / float64(time.Millisecond)
 		}
 		out[r.traceID] = append(out[r.traceID], vk)
 	}
@@ -462,7 +469,7 @@ func (s *Store) UIGraph(ctx context.Context, opts GraphOpts) (map[string]any, er
 			if v.errored {
 				a.ErrorCount++
 			}
-			if v.latMs > 0 {
+			if v.latMs >= 0 {
 				a.Latencies = append(a.Latencies, v.latMs)
 			}
 			a.InTok += v.in
