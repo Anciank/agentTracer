@@ -367,3 +367,40 @@ export type MonitorResponse = {
   by_model: ModelRow[];
   by_tool: ToolRow[];
 };
+
+/** Thread list row — GET /api/ui/threads */
+export type ThreadKeySource = "thread_id" | "session_id";
+
+export type ThreadItem = {
+  thread_id: string;
+  /** Which LangGraph metadata key grouped this thread. */
+  thread_key_source: ThreadKeySource;
+  project: string;
+  turn_count: number;
+  first_activity: string;
+  last_activity: string;
+  first_user_preview: string | null;
+  last_ai_preview: string | null;
+  /** Failed turns ever (can be >0 even when status is success). */
+  error_count: number;
+  /** From the LATEST turn only. */
+  status: TraceStatus;
+};
+
+export type ThreadListParams = {
+  project?: string;
+  limit?: number;
+  cursor?: string;
+};
+
+export type ThreadListResponse = {
+  threads: ThreadItem[];
+  next_cursor: string | null;
+};
+
+/** Thread detail — GET /api/ui/threads/{id}; traces oldest-first, same shape as list. */
+export type ThreadDetailResponse = {
+  thread_id: string;
+  traces: TraceSummary[];
+  next_cursor: string | null;
+};
