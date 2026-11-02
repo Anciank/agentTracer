@@ -67,18 +67,22 @@ func sniffMessages(blob any, root string) *msgHit {
 		if v == nil {
 			return nil
 		}
-		arr, ok := v.([]any)
-		if !ok || len(arr) == 0 {
+		arr := flattenMessageList(v)
+		if len(arr) == 0 {
 			return nil
 		}
-		first, ok := arr[0].(map[string]any)
+		coerced := make([]any, len(arr))
+		for i, el := range arr {
+			coerced[i] = coerceRawMessage(el)
+		}
+		first, ok := coerced[0].(map[string]any)
 		if !ok {
 			return nil
 		}
-		if !(hasAny(first, "role", "type", "content") || hasAny(first, "id", "kwargs", "lc")) {
+		if !(hasAny(first, "role", "type", "content", "text") || hasAny(first, "id", "kwargs", "lc")) {
 			return nil
 		}
-		return &msgHit{path: path, msgs: arr, src: src}
+		return &msgHit{path: path, msgs: coerced, src: src}
 	}
 
 	m, ok := blob.(map[string]any)
@@ -176,6 +180,51 @@ func generationToMessage(cm map[string]any) (msg any, plain bool) {
 	return nil, false
 }
 
+
+// flattenMessageList accepts a chat message list, including LangChain/ChatOpenAI
+// batched prompts where messages is a list-of-lists: [[System, Human, ...]].
+// Flat lists are returned unchanged. Empty input yields nil.
+func flattenMessageList(v any) []any {
+	arr, ok := v.([]any)
+	if !ok || len(arr) == 0 {
+		return nil
+	}
+	allLists := true
+	for _, el := range arr {
+		if _, ok := el.([]any); !ok {
+			allLists = false
+			break
+		}
+	}
+	if !allLists {
+		return arr
+	}
+	out := make([]any, 0, len(arr)*4)
+	for _, el := range arr {
+		out = append(out, el.([]any)...)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// coerceRawMessage lifts chat-prompt tuples ("human", "hi") and bare strings
+// into OpenAI-style maps so normalizeOneMessage always sees a role.
+func coerceRawMessage(raw any) any {
+	switch t := raw.(type) {
+	case string:
+		return map[string]any{"role": "user", "content": t}
+	case []any:
+		if len(t) == 2 {
+			if role, ok := t[0].(string); ok {
+				return map[string]any{"role": role, "content": t[1]}
+			}
+		}
+	}
+	return raw
+}
+
 func hasAny(m map[string]any, keys ...string) bool {
 	for _, k := range keys {
 		if _, ok := m[k]; ok {
@@ -271,6 +320,14 @@ func peekRoleContent(m map[string]any) (role, content string) {
 }
 
 func normalizeOneMessage(i int, raw any, defaultSrc string) map[string]any {
+	raw = coerceRawMessage(raw)
+	if s, ok := raw.(string); ok {
+		return map[string]any{
+			"id": fmt.Sprintf("m%d", i), "role": "user", "name": nil,
+			"content":    []any{map[string]any{"type": "text", "text": s}},
+			"tool_calls": nil, "tool_call_id": nil, "source": defaultSrc,
+		}
+	}
 	m, ok := raw.(map[string]any)
 	if !ok {
 		return map[string]any{

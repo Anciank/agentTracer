@@ -44,6 +44,16 @@ func extractUsage(merged map[string]any) (inTok, outTok, totTok int, model strin
 			if tu, ok := llm["token_usage"].(map[string]any); ok {
 				inTok, outTok, totTok = applyPromptCompletion(tu, inTok, outTok, totTok)
 			}
+			if !hasTokens(inTok, outTok, totTok) {
+				if um, ok := llm["usage_metadata"].(map[string]any); ok {
+					inTok, outTok, totTok = applyInputOutput(um, inTok, outTok, totTok)
+				}
+			}
+		}
+		if !hasTokens(inTok, outTok, totTok) {
+			if um, ok := outs["usage_metadata"].(map[string]any); ok {
+				inTok, outTok, totTok = applyInputOutput(um, inTok, outTok, totTok)
+			}
 		}
 		if !hasTokens(inTok, outTok, totTok) {
 			inTok, outTok, totTok = usageFromGenerations(outs["generations"], inTok, outTok, totTok)
@@ -186,10 +196,29 @@ func usageMetadataFromMessage(msg map[string]any) map[string]any {
 	if um, ok := msg["usage_metadata"].(map[string]any); ok && um != nil {
 		return um
 	}
+	digRM := func(rm any) map[string]any {
+		m, _ := rm.(map[string]any)
+		if m == nil {
+			return nil
+		}
+		if tu, ok := m["token_usage"].(map[string]any); ok && tu != nil {
+			return tu
+		}
+		if tu, ok := m["usage"].(map[string]any); ok && tu != nil {
+			return tu
+		}
+		return nil
+	}
 	if kwargs, ok := msg["kwargs"].(map[string]any); ok {
 		if um, ok := kwargs["usage_metadata"].(map[string]any); ok && um != nil {
 			return um
 		}
+		if um := digRM(kwargs["response_metadata"]); um != nil {
+			return um
+		}
+	}
+	if um := digRM(msg["response_metadata"]); um != nil {
+		return um
 	}
 	return nil
 }
